@@ -7,6 +7,7 @@
 
 class CalendarWidget;
 class QListWidget;
+class QListWidgetItem;
 class QLabel;
 class QPushButton;
 
@@ -28,6 +29,7 @@ private slots:
     void onAddEventClicked();
     void onDeleteEventClicked();
     void onEventSelectionChanged();
+    void onEventDoubleClicked(QListWidgetItem *item);
 
 private:
     void refreshEventsList();

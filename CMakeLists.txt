@@ -11,7 +11,8 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets)
+# Sql - добавлен в Этапе 2 для хранения событий в SQLite.
+find_package(Qt6 REQUIRED COMPONENTS Widgets Sql)
 
 add_executable(QtCalendarApp
     src/main.cpp
@@ -28,4 +29,4 @@ add_executable(QtCalendarApp
 
 target_include_directories(QtCalendarApp PRIVATE src)
 
-target_link_libraries(QtCalendarApp PRIVATE Qt6::Widgets)
+target_link_libraries(QtCalendarApp PRIVATE Qt6::Widgets Qt6::Sql)

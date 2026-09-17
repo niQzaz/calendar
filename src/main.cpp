@@ -59,6 +59,10 @@ void applyDarkTheme(QApplication &app)
             font-weight: bold;
             padding-bottom: 4px;
         }
+        QLabel#hintLabel {
+            color: #888888;
+            font-size: 11px;
+        }
     )";
     app.setStyleSheet(qss);
 }

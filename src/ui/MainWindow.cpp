@@ -27,12 +27,16 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_eventsList = new QListWidget(rightPanel);
 
+    auto *hintLabel = new QLabel("Double-click an event to edit it", rightPanel);
+    hintLabel->setObjectName("hintLabel");
+
     m_addEventButton = new QPushButton("+ Add event", rightPanel);
     m_deleteEventButton = new QPushButton("Delete event", rightPanel);
     m_deleteEventButton->setEnabled(false);
 
     rightLayout->addWidget(m_selectedDateLabel);
     rightLayout->addWidget(m_eventsList, 1);
+    rightLayout->addWidget(hintLabel);
     rightLayout->addWidget(m_addEventButton);
     rightLayout->addWidget(m_deleteEventButton);
 
@@ -48,10 +52,13 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_addEventButton, &QPushButton::clicked, this, &MainWindow::onAddEventClicked);
     connect(m_deleteEventButton, &QPushButton::clicked, this, &MainWindow::onDeleteEventClicked);
     connect(m_eventsList, &QListWidget::itemSelectionChanged, this, &MainWindow::onEventSelectionChanged);
+    connect(m_eventsList, &QListWidget::itemDoubleClicked, this, &MainWindow::onEventDoubleClicked);
 
     // Инициализируем правую панель для дня, который CalendarWidget
-    // выбрал по умолчанию (сегодня).
+    // выбрал по умолчанию (сегодня), и сразу подсвечиваем в сетке дни,
+    // на которые уже есть события, загруженные из БД с прошлого запуска.
     onDateSelected(m_calendar->selectedDate());
+    refreshCalendarMarkers();
 }
 
 void MainWindow::onDateSelected(const QDate &date)
@@ -101,6 +108,23 @@ void MainWindow::onAddEventClicked()
 void MainWindow::onEventSelectionChanged()
 {
     m_deleteEventButton->setEnabled(!m_eventsList->selectedItems().isEmpty());
+}
+
+void MainWindow::onEventDoubleClicked(QListWidgetItem *item)
+{
+    const int eventId = item->data(Qt::UserRole).toInt();
+
+    Event existingEvent;
+    if (!m_eventManager.eventById(eventId, existingEvent))
+        return;
+
+    EventDialog dialog(existingEvent, this);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+
+    m_eventManager.updateEvent(dialog.toEvent());
+    refreshEventsList();
+    refreshCalendarMarkers();
 }
 
 void MainWindow::onDeleteEventClicked()

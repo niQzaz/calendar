@@ -13,16 +13,38 @@ EventDialog::EventDialog(const QDate &defaultDate, QWidget *parent)
     : QDialog(parent)
 {
     setWindowTitle("New event");
+    buildForm();
 
+    m_dateEdit->setDate(defaultDate);
+    m_startTimeEdit->setTime(QTime(9, 0));
+    m_endTimeEdit->setTime(QTime(10, 0));
+}
+
+EventDialog::EventDialog(const Event &eventToEdit, QWidget *parent)
+    : QDialog(parent)
+{
+    setWindowTitle("Edit event");
+    buildForm();
+
+    m_editingId = eventToEdit.id;
+    m_titleEdit->setText(eventToEdit.title);
+    m_dateEdit->setDate(eventToEdit.date);
+    m_startTimeEdit->setTime(eventToEdit.startTime);
+    m_endTimeEdit->setTime(eventToEdit.endTime);
+    m_descriptionEdit->setPlainText(eventToEdit.description);
+}
+
+void EventDialog::buildForm()
+{
     m_titleEdit = new QLineEdit(this);
     m_titleEdit->setPlaceholderText("Event title");
 
-    m_dateEdit = new QDateEdit(defaultDate, this);
+    m_dateEdit = new QDateEdit(this);
     m_dateEdit->setCalendarPopup(true);
     m_dateEdit->setDisplayFormat("dd.MM.yyyy");
 
-    m_startTimeEdit = new QTimeEdit(QTime(9, 0), this);
-    m_endTimeEdit = new QTimeEdit(QTime(10, 0), this);
+    m_startTimeEdit = new QTimeEdit(this);
+    m_endTimeEdit = new QTimeEdit(this);
     m_startTimeEdit->setDisplayFormat("HH:mm");
     m_endTimeEdit->setDisplayFormat("HH:mm");
 
@@ -67,6 +89,7 @@ void EventDialog::onAccept()
 Event EventDialog::toEvent() const
 {
     Event result;
+    result.id = m_editingId;
     result.title = m_titleEdit->text().trimmed();
     result.date = m_dateEdit->date();
     result.startTime = m_startTimeEdit->time();
