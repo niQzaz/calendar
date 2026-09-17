@@ -19,12 +19,16 @@ add_executable(QtCalendarApp
     src/models/Event.h
     src/services/EventManager.h
     src/services/EventManager.cpp
+    src/services/PomodoroTimer.h
+    src/services/PomodoroTimer.cpp
     src/ui/MainWindow.h
     src/ui/MainWindow.cpp
     src/ui/CalendarWidget.h
     src/ui/CalendarWidget.cpp
     src/ui/EventDialog.h
     src/ui/EventDialog.cpp
+    src/ui/PomodoroWidget.h
+    src/ui/PomodoroWidget.cpp
 )
 
 target_include_directories(QtCalendarApp PRIVATE src)

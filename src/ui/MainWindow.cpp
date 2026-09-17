@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 #include "CalendarWidget.h"
 #include "EventDialog.h"
+#include "PomodoroWidget.h"
 
 #include <QListWidget>
 #include <QListWidgetItem>
@@ -17,6 +18,7 @@ MainWindow::MainWindow(QWidget *parent)
     resize(900, 600);
 
     m_calendar = new CalendarWidget(this);
+    m_pomodoro = new PomodoroWidget(this);
 
     // --- Правая панель: события выбранного дня ---
     auto *rightPanel = new QWidget(this);
@@ -43,8 +45,10 @@ MainWindow::MainWindow(QWidget *parent)
     auto *splitter = new QSplitter(this);
     splitter->addWidget(m_calendar);
     splitter->addWidget(rightPanel);
+    splitter->addWidget(m_pomodoro);
     splitter->setStretchFactor(0, 2);
     splitter->setStretchFactor(1, 1);
+    splitter->setStretchFactor(2, 1);
 
     setCentralWidget(splitter);
 

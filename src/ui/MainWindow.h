@@ -6,6 +6,7 @@
 #include "services/EventManager.h"
 
 class CalendarWidget;
+class PomodoroWidget;
 class QListWidget;
 class QListWidgetItem;
 class QLabel;
@@ -40,6 +41,7 @@ private:
     QLabel *m_selectedDateLabel = nullptr;
     QPushButton *m_addEventButton = nullptr;
     QPushButton *m_deleteEventButton = nullptr;
+    PomodoroWidget *m_pomodoro = nullptr; // сам виджет; используется в Этапе 4
 
     // MainWindow владеет единственным экземпляром EventManager на всё
     // приложение. Для MVP этого достаточно - передавать его через

@@ -63,6 +63,17 @@ void applyDarkTheme(QApplication &app)
             color: #888888;
             font-size: 11px;
         }
+        QLabel#pomodoroModeLabel {
+            font-size: 14px;
+            color: #999999;
+        }
+        QLabel#pomodoroTimeLabel {
+            font-size: 48px;
+            font-weight: bold;
+        }
+        QLabel#pomodoroCompletedLabel {
+            color: #999999;
+        }
     )";
     app.setStyleSheet(qss);
 }
