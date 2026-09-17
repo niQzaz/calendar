@@ -32,6 +32,13 @@ void PomodoroTimer::start()
     m_timer->start();
 }
 
+void PomodoroTimer::startFresh()
+{
+    m_timer->stop();
+    switchToMode(PomodoroMode::Work);
+    m_timer->start();
+}
+
 void PomodoroTimer::pause()
 {
     m_timer->stop();

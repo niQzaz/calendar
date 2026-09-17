@@ -21,6 +21,18 @@ class PomodoroWidget : public QWidget
 public:
     explicit PomodoroWidget(QWidget *parent = nullptr);
 
+    // Привязывает таймер к конкретному событию: показывает taskLabel
+    // как текущую задачу, принудительно начинает свежий рабочий отрезок
+    // и сразу запускает отсчёт. Если до этого был активен другой
+    // отрезок (для той же или другой задачи) - он прерывается.
+    void startForTask(int eventId, const QString &taskLabel);
+
+signals:
+    // Испускается, когда завершается рабочий отрезок, привязанный
+    // к конкретному событию (eventId). MainWindow подписывается на этот
+    // сигнал, чтобы сохранить +1 pomodoro для события в БД.
+    void pomodoroCompletedForEvent(int eventId);
+
 private slots:
     void onTick(int remainingSeconds);
     void onModeChanged(PomodoroMode mode);
@@ -29,9 +41,12 @@ private slots:
 private:
     static QString formatTime(int totalSeconds);
     static QString modeDisplayName(PomodoroMode mode);
+    void setRunningButtonsState(bool running);
 
     PomodoroTimer *m_timer;
+    int m_linkedEventId = -1; // -1 = таймер не привязан к конкретному событию
 
+    QLabel *m_currentTaskLabel = nullptr;
     QLabel *m_modeLabel = nullptr;
     QLabel *m_timeLabel = nullptr;
     QLabel *m_completedLabel = nullptr;

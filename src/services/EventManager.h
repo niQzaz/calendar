@@ -48,6 +48,9 @@ public:
     // Находит событие по id. Возвращает true и заполняет outEvent, если найдено.
     bool eventById(int id, Event &outEvent) const;
 
+    // Увеличивает счётчик завершённых pomodoro для события на 1.
+    bool incrementPomodoroCount(int id);
+
     // Все события на дату, отсортированные по времени начала.
     QVector<Event> eventsForDate(const QDate &date) const;
 

@@ -20,4 +20,9 @@ struct Event
     QTime startTime;
     QTime endTime;
     QString description;
+
+    // Сколько рабочих отрезков Pomodoro было завершено для этого события.
+    // Добавлено в Этапе 4; хранится в БД отдельно от остальных полей
+    // и не трогается при обычном редактировании события.
+    int pomodorosCompleted = 0;
 };

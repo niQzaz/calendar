@@ -31,6 +31,8 @@ private slots:
     void onDeleteEventClicked();
     void onEventSelectionChanged();
     void onEventDoubleClicked(QListWidgetItem *item);
+    void onStartPomodoroClicked();
+    void onPomodoroCompletedForEvent(int eventId);
 
 private:
     void refreshEventsList();
@@ -41,7 +43,8 @@ private:
     QLabel *m_selectedDateLabel = nullptr;
     QPushButton *m_addEventButton = nullptr;
     QPushButton *m_deleteEventButton = nullptr;
-    PomodoroWidget *m_pomodoro = nullptr; // сам виджет; используется в Этапе 4
+    QPushButton *m_startPomodoroButton = nullptr;
+    PomodoroWidget *m_pomodoro = nullptr;
 
     // MainWindow владеет единственным экземпляром EventManager на всё
     // приложение. Для MVP этого достаточно - передавать его через

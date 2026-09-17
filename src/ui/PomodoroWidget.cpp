@@ -9,6 +9,11 @@ PomodoroWidget::PomodoroWidget(QWidget *parent)
     : QWidget(parent)
     , m_timer(new PomodoroTimer(this))
 {
+    m_currentTaskLabel = new QLabel("No task selected", this);
+    m_currentTaskLabel->setAlignment(Qt::AlignCenter);
+    m_currentTaskLabel->setWordWrap(true);
+    m_currentTaskLabel->setObjectName("currentTaskLabel");
+
     m_modeLabel = new QLabel(this);
     m_modeLabel->setAlignment(Qt::AlignCenter);
     m_modeLabel->setObjectName("pomodoroModeLabel");
@@ -33,6 +38,7 @@ PomodoroWidget::PomodoroWidget(QWidget *parent)
 
     auto *rootLayout = new QVBoxLayout(this);
     rootLayout->addStretch();
+    rootLayout->addWidget(m_currentTaskLabel);
     rootLayout->addWidget(m_modeLabel);
     rootLayout->addWidget(m_timeLabel);
     rootLayout->addLayout(buttonsLayout);
@@ -45,24 +51,35 @@ PomodoroWidget::PomodoroWidget(QWidget *parent)
 
     connect(m_startButton, &QPushButton::clicked, this, [this]() {
         m_timer->start();
-        m_startButton->setEnabled(false);
-        m_pauseButton->setEnabled(true);
+        setRunningButtonsState(true);
     });
     connect(m_pauseButton, &QPushButton::clicked, this, [this]() {
         m_timer->pause();
-        m_startButton->setEnabled(true);
-        m_pauseButton->setEnabled(false);
+        setRunningButtonsState(false);
     });
     connect(m_resetButton, &QPushButton::clicked, this, [this]() {
         m_timer->reset();
-        m_startButton->setEnabled(true);
-        m_pauseButton->setEnabled(false);
+        setRunningButtonsState(false);
     });
 
     // Начальное отображение: режим Work, полное время, 0 завершённых.
     onModeChanged(m_timer->mode());
     onTick(m_timer->remainingSeconds());
     onPomodoroCompleted(m_timer->completedPomodoros());
+}
+
+void PomodoroWidget::startForTask(int eventId, const QString &taskLabel)
+{
+    m_linkedEventId = eventId;
+    m_currentTaskLabel->setText(QString("Task: %1").arg(taskLabel));
+    m_timer->startFresh();
+    setRunningButtonsState(true);
+}
+
+void PomodoroWidget::setRunningButtonsState(bool running)
+{
+    m_startButton->setEnabled(!running);
+    m_pauseButton->setEnabled(running);
 }
 
 void PomodoroWidget::onTick(int remainingSeconds)
@@ -77,13 +94,19 @@ void PomodoroWidget::onModeChanged(PomodoroMode mode)
     // Смена режима означает, что фаза закончилась и таймер сам
     // остановился (см. PomodoroTimer::onTimeout) - возвращаем кнопки
     // в состояние "готов к запуску следующей фазы".
-    m_startButton->setEnabled(true);
-    m_pauseButton->setEnabled(false);
+    setRunningButtonsState(false);
 }
 
 void PomodoroWidget::onPomodoroCompleted(int totalCompleted)
 {
     m_completedLabel->setText(QString("Completed pomodoros: %1").arg(totalCompleted));
+
+    // Если таймер сейчас привязан к конкретной задаче - сообщаем об этом
+    // наружу, чтобы MainWindow сохранил +1 pomodoro для этого события в БД.
+    // PomodoroTimer сам не знает про события - эту связь держит только
+    // PomodoroWidget.
+    if (m_linkedEventId != -1)
+        emit pomodoroCompletedForEvent(m_linkedEventId);
 }
 
 QString PomodoroWidget::formatTime(int totalSeconds)

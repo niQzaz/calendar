@@ -26,6 +26,7 @@ Event eventFromQuery(const QSqlQuery &query)
     event.startTime = QTime::fromString(query.value("start_time").toString(), Qt::ISODate);
     event.endTime = QTime::fromString(query.value("end_time").toString(), Qt::ISODate);
     event.description = query.value("description").toString();
+    event.pomodorosCompleted = query.value("pomodoros_completed").toInt();
     return event;
 }
 
@@ -56,12 +57,31 @@ EventManager::EventManager()
         "  date TEXT NOT NULL,"
         "  start_time TEXT NOT NULL,"
         "  end_time TEXT NOT NULL,"
-        "  description TEXT"
+        "  description TEXT,"
+        "  pomodoros_completed INTEGER NOT NULL DEFAULT 0"
         ")"
     );
 
     if (!ok)
         qWarning() << "Failed to create events table:" << query.lastError().text();
+
+    // Миграция: базы, созданные в Этапе 2, не содержат колонки
+    // pomodoros_completed - она появилась только в Этапе 4. Проверяем
+    // через PRAGMA table_info, есть ли колонка, и добавляем при необходимости,
+    // чтобы у пользователей со старой базой ничего не сломалось.
+    query.exec("PRAGMA table_info(events)");
+    bool hasPomodoroColumn = false;
+    while (query.next()) {
+        if (query.value("name").toString() == "pomodoros_completed") {
+            hasPomodoroColumn = true;
+            break;
+        }
+    }
+
+    if (!hasPomodoroColumn) {
+        if (!query.exec("ALTER TABLE events ADD COLUMN pomodoros_completed INTEGER NOT NULL DEFAULT 0"))
+            qWarning() << "Failed to migrate events table:" << query.lastError().text();
+    }
 }
 
 EventManager::~EventManager()
@@ -141,6 +161,20 @@ bool EventManager::eventById(int id, Event &outEvent) const
 
     outEvent = eventFromQuery(query);
     return true;
+}
+
+bool EventManager::incrementPomodoroCount(int id)
+{
+    QSqlQuery query(QSqlDatabase::database(m_connectionName));
+    query.prepare("UPDATE events SET pomodoros_completed = pomodoros_completed + 1 WHERE id = :id");
+    query.bindValue(":id", id);
+
+    if (!query.exec()) {
+        qWarning() << "Failed to increment pomodoro count:" << query.lastError().text();
+        return false;
+    }
+
+    return query.numRowsAffected() > 0;
 }
 
 QVector<Event> EventManager::eventsForDate(const QDate &date) const

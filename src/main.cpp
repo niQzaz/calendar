@@ -63,6 +63,11 @@ void applyDarkTheme(QApplication &app)
             color: #888888;
             font-size: 11px;
         }
+        QLabel#currentTaskLabel {
+            font-size: 13px;
+            font-weight: bold;
+            color: #dddddd;
+        }
         QLabel#pomodoroModeLabel {
             font-size: 14px;
             color: #999999;

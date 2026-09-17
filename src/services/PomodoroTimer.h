@@ -35,6 +35,11 @@ public:
     int completedPomodoros() const { return m_completedPomodoros; }
     bool isRunning() const;
 
+    // Принудительно переключает на свежий рабочий отрезок (Work) и сразу
+    // запускает отсчёт - используется при старте Pomodoro для конкретной
+    // задачи (Этап 4), независимо от того, что было "до".
+    void startFresh();
+
 public slots:
     void start();
     void pause();

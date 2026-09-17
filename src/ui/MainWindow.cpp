@@ -35,12 +35,15 @@ MainWindow::MainWindow(QWidget *parent)
     m_addEventButton = new QPushButton("+ Add event", rightPanel);
     m_deleteEventButton = new QPushButton("Delete event", rightPanel);
     m_deleteEventButton->setEnabled(false);
+    m_startPomodoroButton = new QPushButton("Start Pomodoro", rightPanel);
+    m_startPomodoroButton->setEnabled(false);
 
     rightLayout->addWidget(m_selectedDateLabel);
     rightLayout->addWidget(m_eventsList, 1);
     rightLayout->addWidget(hintLabel);
     rightLayout->addWidget(m_addEventButton);
     rightLayout->addWidget(m_deleteEventButton);
+    rightLayout->addWidget(m_startPomodoroButton);
 
     auto *splitter = new QSplitter(this);
     splitter->addWidget(m_calendar);
@@ -57,6 +60,8 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_deleteEventButton, &QPushButton::clicked, this, &MainWindow::onDeleteEventClicked);
     connect(m_eventsList, &QListWidget::itemSelectionChanged, this, &MainWindow::onEventSelectionChanged);
     connect(m_eventsList, &QListWidget::itemDoubleClicked, this, &MainWindow::onEventDoubleClicked);
+    connect(m_startPomodoroButton, &QPushButton::clicked, this, &MainWindow::onStartPomodoroClicked);
+    connect(m_pomodoro, &PomodoroWidget::pomodoroCompletedForEvent, this, &MainWindow::onPomodoroCompletedForEvent);
 
     // Инициализируем правую панель для дня, который CalendarWidget
     // выбрал по умолчанию (сегодня), и сразу подсвечиваем в сетке дни,
@@ -79,10 +84,13 @@ void MainWindow::refreshEventsList()
     const QVector<Event> events = m_eventManager.eventsForDate(date);
 
     for (const Event &event : events) {
-        const QString text = QString("%1 - %2   %3")
+        QString text = QString("%1 - %2   %3")
             .arg(event.startTime.toString("HH:mm"))
             .arg(event.endTime.toString("HH:mm"))
             .arg(event.title);
+
+        if (event.pomodorosCompleted > 0)
+            text += QString("   \xF0\x9F\x8D\x85\xC3\x97%1").arg(event.pomodorosCompleted);
 
         auto *item = new QListWidgetItem(text, m_eventsList);
         item->setData(Qt::UserRole, event.id);
@@ -91,6 +99,7 @@ void MainWindow::refreshEventsList()
     }
 
     m_deleteEventButton->setEnabled(false);
+    m_startPomodoroButton->setEnabled(false);
 }
 
 void MainWindow::refreshCalendarMarkers()
@@ -111,7 +120,9 @@ void MainWindow::onAddEventClicked()
 
 void MainWindow::onEventSelectionChanged()
 {
-    m_deleteEventButton->setEnabled(!m_eventsList->selectedItems().isEmpty());
+    const bool hasSelection = !m_eventsList->selectedItems().isEmpty();
+    m_deleteEventButton->setEnabled(hasSelection);
+    m_startPomodoroButton->setEnabled(hasSelection);
 }
 
 void MainWindow::onEventDoubleClicked(QListWidgetItem *item)
@@ -129,6 +140,32 @@ void MainWindow::onEventDoubleClicked(QListWidgetItem *item)
     m_eventManager.updateEvent(dialog.toEvent());
     refreshEventsList();
     refreshCalendarMarkers();
+}
+
+void MainWindow::onStartPomodoroClicked()
+{
+    QListWidgetItem *item = m_eventsList->currentItem();
+    if (!item)
+        return;
+
+    const int eventId = item->data(Qt::UserRole).toInt();
+
+    Event event;
+    if (!m_eventManager.eventById(eventId, event))
+        return;
+
+    const QString taskLabel = QString("%1 (%2\xE2\x80\x93%3)")
+        .arg(event.title)
+        .arg(event.startTime.toString("HH:mm"))
+        .arg(event.endTime.toString("HH:mm"));
+
+    m_pomodoro->startForTask(event.id, taskLabel);
+}
+
+void MainWindow::onPomodoroCompletedForEvent(int eventId)
+{
+    m_eventManager.incrementPomodoroCount(eventId);
+    refreshEventsList();
 }
 
 void MainWindow::onDeleteEventClicked()
