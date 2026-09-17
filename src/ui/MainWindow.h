@@ -33,6 +33,7 @@ private slots:
     void onEventDoubleClicked(QListWidgetItem *item);
     void onStartPomodoroClicked();
     void onPomodoroCompletedForEvent(int eventId);
+    void onImportCsvClicked();
 
 private:
     void refreshEventsList();

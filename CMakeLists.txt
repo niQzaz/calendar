@@ -21,6 +21,8 @@ add_executable(QtCalendarApp
     src/services/EventManager.cpp
     src/services/PomodoroTimer.h
     src/services/PomodoroTimer.cpp
+    src/services/CsvImporter.h
+    src/services/CsvImporter.cpp
     src/ui/MainWindow.h
     src/ui/MainWindow.cpp
     src/ui/CalendarWidget.h

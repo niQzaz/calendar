@@ -2,6 +2,7 @@
 #include "CalendarWidget.h"
 #include "EventDialog.h"
 #include "PomodoroWidget.h"
+#include "services/CsvImporter.h"
 
 #include <QListWidget>
 #include <QListWidgetItem>
@@ -10,12 +11,20 @@
 #include <QVBoxLayout>
 #include <QSplitter>
 #include <QWidget>
+#include <QMenuBar>
+#include <QAction>
+#include <QFileDialog>
+#include <QMessageBox>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
     setWindowTitle("Calendar");
     resize(900, 600);
+
+    auto *fileMenu = menuBar()->addMenu("File");
+    auto *importAction = fileMenu->addAction("Import CSV...");
+    connect(importAction, &QAction::triggered, this, &MainWindow::onImportCsvClicked);
 
     m_calendar = new CalendarWidget(this);
     m_pomodoro = new PomodoroWidget(this);
@@ -166,6 +175,64 @@ void MainWindow::onPomodoroCompletedForEvent(int eventId)
 {
     m_eventManager.incrementPomodoroCount(eventId);
     refreshEventsList();
+}
+
+void MainWindow::onImportCsvClicked()
+{
+    const QString filePath = QFileDialog::getOpenFileName(
+        this, "Import schedule from CSV", QString(), "CSV files (*.csv);;All files (*)"
+    );
+
+    if (filePath.isEmpty())
+        return; // пользователь отменил выбор файла
+
+    const CsvImportResult result = CsvImporter::importFromFile(filePath);
+
+    if (result.fileOpenFailed) {
+        QMessageBox::warning(this, "Import failed", "Could not open the selected file.");
+        return;
+    }
+
+    if (result.totalDataRows == 0) {
+        QMessageBox::information(this, "Import CSV", "No data rows found in the file.");
+        return;
+    }
+
+    QString summary = QString("Found %1 valid event(s) out of %2 data row(s).")
+        .arg(result.validEvents.size())
+        .arg(result.totalDataRows);
+
+    if (!result.errors.isEmpty()) {
+        const int maxErrorsShown = 10;
+        summary += QString("\n\n%1 row(s) skipped due to errors:\n").arg(result.errors.size());
+        for (int i = 0; i < qMin(maxErrorsShown, result.errors.size()); ++i)
+            summary += "\n- " + result.errors[i];
+        if (result.errors.size() > maxErrorsShown)
+            summary += QString("\n... and %1 more").arg(result.errors.size() - maxErrorsShown);
+    }
+
+    if (result.validEvents.isEmpty()) {
+        QMessageBox::warning(this, "Import CSV", summary);
+        return;
+    }
+
+    summary += "\n\nImport these events?";
+    const auto answer = QMessageBox::question(
+        this, "Import CSV", summary, QMessageBox::Yes | QMessageBox::No
+    );
+
+    if (answer != QMessageBox::Yes)
+        return;
+
+    for (const Event &event : result.validEvents)
+        m_eventManager.addEvent(event);
+
+    refreshEventsList();
+    refreshCalendarMarkers();
+
+    QMessageBox::information(
+        this, "Import CSV", QString("Imported %1 event(s).").arg(result.validEvents.size())
+    );
 }
 
 void MainWindow::onDeleteEventClicked()
