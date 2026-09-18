@@ -144,6 +144,7 @@ void CalendarWidget::goToPreviousMonth()
         m_year -= 1;
     }
     rebuildGrid();
+    emit visibleRangeChanged(m_cellDates.first(), m_cellDates.last());
 }
 
 void CalendarWidget::goToNextMonth()
@@ -154,6 +155,7 @@ void CalendarWidget::goToNextMonth()
         m_year += 1;
     }
     rebuildGrid();
+    emit visibleRangeChanged(m_cellDates.first(), m_cellDates.last());
 }
 
 void CalendarWidget::goToToday()
@@ -167,6 +169,7 @@ void CalendarWidget::setSelectedDate(const QDate &date)
     m_month = date.month();
     m_selectedDate = date;
     rebuildGrid();
+    emit visibleRangeChanged(m_cellDates.first(), m_cellDates.last());
     emit dateSelected(m_selectedDate);
 }
 

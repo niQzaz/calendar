@@ -17,6 +17,7 @@ find_package(Qt6 REQUIRED COMPONENTS Widgets Sql)
 add_executable(QtCalendarApp
     src/main.cpp
     src/models/Event.h
+    src/models/Event.cpp
     src/services/EventManager.h
     src/services/EventManager.cpp
     src/services/PomodoroTimer.h

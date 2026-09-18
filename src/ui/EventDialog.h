@@ -8,6 +8,9 @@ class QLineEdit;
 class QDateEdit;
 class QTimeEdit;
 class QPlainTextEdit;
+class QComboBox;
+class QSpinBox;
+class QCheckBox;
 
 // Диалог создания ИЛИ редактирования события.
 //
@@ -33,6 +36,7 @@ public:
 
 private slots:
     void onAccept();
+    void onRecurrenceTypeChanged(int index);
 
 private:
     void buildForm(); // создаёт виджеты формы - общая часть для обоих режимов
@@ -44,4 +48,10 @@ private:
     QTimeEdit *m_startTimeEdit = nullptr;
     QTimeEdit *m_endTimeEdit = nullptr;
     QPlainTextEdit *m_descriptionEdit = nullptr;
+
+    // Повторение (Этап 6).
+    QComboBox *m_recurrenceCombo = nullptr;
+    QSpinBox *m_customIntervalSpin = nullptr;   // активен только при "Custom interval"
+    QCheckBox *m_hasEndDateCheck = nullptr;
+    QDateEdit *m_recurrenceEndDateEdit = nullptr;
 };

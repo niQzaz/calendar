@@ -34,6 +34,7 @@ private slots:
     void onStartPomodoroClicked();
     void onPomodoroCompletedForEvent(int eventId);
     void onImportCsvClicked();
+    void onVisibleRangeChanged(const QDate &start, const QDate &end);
 
 private:
     void refreshEventsList();
@@ -46,6 +47,11 @@ private:
     QPushButton *m_deleteEventButton = nullptr;
     QPushButton *m_startPomodoroButton = nullptr;
     PomodoroWidget *m_pomodoro = nullptr;
+
+    // Видимый диапазон сетки календаря - обновляется по сигналу
+    // CalendarWidget::visibleRangeChanged, используется в refreshCalendarMarkers().
+    QDate m_visibleRangeStart;
+    QDate m_visibleRangeEnd;
 
     // MainWindow владеет единственным экземпляром EventManager на всё
     // приложение. Для MVP этого достаточно - передавать его через

@@ -71,10 +71,13 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_eventsList, &QListWidget::itemDoubleClicked, this, &MainWindow::onEventDoubleClicked);
     connect(m_startPomodoroButton, &QPushButton::clicked, this, &MainWindow::onStartPomodoroClicked);
     connect(m_pomodoro, &PomodoroWidget::pomodoroCompletedForEvent, this, &MainWindow::onPomodoroCompletedForEvent);
+    connect(m_calendar, &CalendarWidget::visibleRangeChanged, this, &MainWindow::onVisibleRangeChanged);
 
     // Инициализируем правую панель для дня, который CalendarWidget
     // выбрал по умолчанию (сегодня), и сразу подсвечиваем в сетке дни,
     // на которые уже есть события, загруженные из БД с прошлого запуска.
+    m_visibleRangeStart = m_calendar->visibleRangeStart();
+    m_visibleRangeEnd = m_calendar->visibleRangeEnd();
     onDateSelected(m_calendar->selectedDate());
     refreshCalendarMarkers();
 }
@@ -101,6 +104,10 @@ void MainWindow::refreshEventsList()
         if (event.pomodorosCompleted > 0)
             text += QString("   \xF0\x9F\x8D\x85\xC3\x97%1").arg(event.pomodorosCompleted);
 
+        const QString recurrence = recurrenceSummary(event);
+        if (!recurrence.isEmpty())
+            text += QString("   \xE2\x86\xBB %1").arg(recurrence); // ↻ значок повтора
+
         auto *item = new QListWidgetItem(text, m_eventsList);
         item->setData(Qt::UserRole, event.id);
         if (!event.description.isEmpty())
@@ -113,7 +120,14 @@ void MainWindow::refreshEventsList()
 
 void MainWindow::refreshCalendarMarkers()
 {
-    m_calendar->setDatesWithEvents(m_eventManager.datesWithEvents());
+    m_calendar->setDatesWithEvents(m_eventManager.datesWithEvents(m_visibleRangeStart, m_visibleRangeEnd));
+}
+
+void MainWindow::onVisibleRangeChanged(const QDate &start, const QDate &end)
+{
+    m_visibleRangeStart = start;
+    m_visibleRangeEnd = end;
+    refreshCalendarMarkers();
 }
 
 void MainWindow::onAddEventClicked()
@@ -242,6 +256,22 @@ void MainWindow::onDeleteEventClicked()
         return;
 
     const int eventId = item->data(Qt::UserRole).toInt();
+
+    // Повторяющееся событие в БД - одна строка-шаблон (см. Этап 6),
+    // поэтому удаление затрагивает всю серию, а не только показанное
+    // повторение. Предупреждаем об этом явно, прежде чем удалять.
+    Event event;
+    if (m_eventManager.eventById(eventId, event) && event.recurrenceType != RecurrenceType::None) {
+        const auto answer = QMessageBox::question(
+            this, "Delete repeating event",
+            "This is a repeating event. Deleting it removes the whole series "
+            "(all past and future occurrences), not just this one. Continue?",
+            QMessageBox::Yes | QMessageBox::No
+        );
+        if (answer != QMessageBox::Yes)
+            return;
+    }
+
     m_eventManager.removeEvent(eventId);
 
     refreshEventsList();

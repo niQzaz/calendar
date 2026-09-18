@@ -43,6 +43,12 @@ public:
     // Текущая выбранная дата.
     QDate selectedDate() const { return m_selectedDate; }
 
+    // Первая и последняя дата, видимые сейчас в сетке (42 ячейки, могут
+    // относиться к соседним месяцам). Нужны, чтобы запросить у EventManager
+    // только даты в этом диапазоне - см. комментарий у EventManager::datesWithEvents.
+    QDate visibleRangeStart() const { return m_cellDates.isEmpty() ? QDate() : m_cellDates.first(); }
+    QDate visibleRangeEnd() const { return m_cellDates.isEmpty() ? QDate() : m_cellDates.last(); }
+
     // Обновляет набор дат, для которых показывается маркер "есть события".
     void setDatesWithEvents(const QSet<QDate> &dates);
 
@@ -56,6 +62,10 @@ signals:
     // Испускается при выборе пользователем дня в сетке
     // (в т.ч. при программном вызове setSelectedDate/goToToday).
     void dateSelected(const QDate &date);
+
+    // Испускается при любом перестроении сетки (смена месяца, выбор дня) -
+    // видимый диапазон дат мог измениться.
+    void visibleRangeChanged(const QDate &start, const QDate &end);
 
 private:
     void rebuildGrid();

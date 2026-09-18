@@ -54,10 +54,18 @@ public:
     // Все события на дату, отсортированные по времени начала.
     QVector<Event> eventsForDate(const QDate &date) const;
 
-    // Даты, на которые есть хотя бы одно событие
-    // (используется CalendarWidget, чтобы пометить такие дни в сетке).
-    QSet<QDate> datesWithEvents() const;
+    // Даты в диапазоне [rangeStart, rangeEnd], на которые есть хотя бы одно
+    // событие (обычное или повторяющееся). Диапазон обязателен: у повторяющегося
+    // события без даты окончания "все даты, на которые оно есть" - бесконечное
+    // множество, поэтому считаем только для конкретного видимого диапазона
+    // (используется CalendarWidget, чтобы пометить такие дни в сетке месяца).
+    QSet<QDate> datesWithEvents(const QDate &rangeStart, const QDate &rangeEnd) const;
 
 private:
+    // Загружает все события с recurrence_type != 'none' - их всегда немного
+    // (это шаблоны, а не отдельные повторения), поэтому дальше с ними
+    // работаем в памяти через eventOccursOnDate(), а не через SQL.
+    QVector<Event> allRecurringTemplates() const;
+
     QString m_connectionName;
 };
