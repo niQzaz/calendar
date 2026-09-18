@@ -1,11 +1,13 @@
 #include "NotificationService.h"
+#include "AppSettings.h"
 
 #include <QApplication>
 #include <QStyle>
 #include <QDebug>
 
-NotificationService::NotificationService(QObject *parent)
+NotificationService::NotificationService(AppSettings *settings, QObject *parent)
     : QObject(parent)
+    , m_settings(settings)
 {
     if (!QSystemTrayIcon::isSystemTrayAvailable()) {
         qWarning() << "System tray is not available - desktop notifications will be disabled.";
@@ -20,6 +22,9 @@ NotificationService::NotificationService(QObject *parent)
 
 void NotificationService::showNotification(const QString &title, const QString &message)
 {
+    if (!m_settings->notificationsEnabled())
+        return;
+
     if (!m_trayIcon) {
         qWarning() << "Notification skipped (no tray icon):" << title << "-" << message;
         return;

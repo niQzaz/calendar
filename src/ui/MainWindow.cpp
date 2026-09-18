@@ -2,6 +2,7 @@
 #include "CalendarWidget.h"
 #include "EventDialog.h"
 #include "PomodoroWidget.h"
+#include "SettingsDialog.h"
 #include "services/CsvImporter.h"
 #include "services/NotificationService.h"
 #include "services/EventReminder.h"
@@ -25,13 +26,41 @@ MainWindow::MainWindow(QWidget *parent)
     resize(900, 600);
 
     auto *fileMenu = menuBar()->addMenu("File");
-    auto *importAction = fileMenu->addAction("Import CSV...");
-    connect(importAction, &QAction::triggered, this, &MainWindow::onImportCsvClicked);
 
     m_calendar = new CalendarWidget(this);
-    m_notificationService = new NotificationService(this);
-    m_pomodoro = new PomodoroWidget(m_notificationService, this);
+    m_notificationService = new NotificationService(&m_settings, this);
+    m_pomodoro = new PomodoroWidget(&m_settings, m_notificationService, this);
     m_eventReminder = new EventReminder(&m_eventManager, m_notificationService, this);
+
+    m_calendar->setFirstDayOfWeek(m_settings.sundayFirst());
+
+    // Действия меню создаём только теперь - m_togglePomodoroAction
+    // подключается напрямую к m_pomodoro, а m_goToTodayAction - к m_calendar
+    // (через лямбду), оба должны уже существовать к этому моменту.
+    m_newEventAction = new QAction("New event", this);
+    connect(m_newEventAction, &QAction::triggered, this, &MainWindow::onAddEventClicked);
+    fileMenu->addAction(m_newEventAction);
+
+    m_importCsvAction = new QAction("Import CSV...", this);
+    connect(m_importCsvAction, &QAction::triggered, this, &MainWindow::onImportCsvClicked);
+    fileMenu->addAction(m_importCsvAction);
+
+    fileMenu->addSeparator();
+
+    auto *settingsAction = fileMenu->addAction("Settings...");
+    connect(settingsAction, &QAction::triggered, this, &MainWindow::onSettingsClicked);
+
+    // Today и Pomodoro в меню не показываем - они нужны только как
+    // горячие клавиши, поэтому addAction(this), а не в меню.
+    m_goToTodayAction = new QAction(this);
+    connect(m_goToTodayAction, &QAction::triggered, this, [this]() { m_calendar->goToToday(); });
+    addAction(m_goToTodayAction);
+
+    m_togglePomodoroAction = new QAction(this);
+    connect(m_togglePomodoroAction, &QAction::triggered, m_pomodoro, &PomodoroWidget::toggleStartPause);
+    addAction(m_togglePomodoroAction);
+
+    applyShortcuts();
 
     // --- Правая панель: события выбранного дня ---
     auto *rightPanel = new QWidget(this);
@@ -251,6 +280,32 @@ void MainWindow::onImportCsvClicked()
     QMessageBox::information(
         this, "Import CSV", QString("Imported %1 event(s).").arg(result.validEvents.size())
     );
+}
+
+void MainWindow::applyShortcuts()
+{
+    m_newEventAction->setShortcut(m_settings.shortcut(ShortcutAction::NewEvent));
+    m_importCsvAction->setShortcut(m_settings.shortcut(ShortcutAction::ImportCsv));
+    m_goToTodayAction->setShortcut(m_settings.shortcut(ShortcutAction::GoToToday));
+    m_togglePomodoroAction->setShortcut(m_settings.shortcut(ShortcutAction::TogglePomodoro));
+}
+
+void MainWindow::onSettingsClicked()
+{
+    SettingsDialog dialog(&m_settings, this);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+
+    // Применяем то, что можно применить без перезапуска.
+    m_calendar->setFirstDayOfWeek(m_settings.sundayFirst());
+    applyShortcuts();
+
+    if (dialog.themeChanged()) {
+        QMessageBox::information(
+            this, "Theme changed",
+            "Restart the application for the theme change to take effect."
+        );
+    }
 }
 
 void MainWindow::onDeleteEventClicked()

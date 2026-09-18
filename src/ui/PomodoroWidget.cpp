@@ -6,9 +6,9 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 
-PomodoroWidget::PomodoroWidget(NotificationService *notificationService, QWidget *parent)
+PomodoroWidget::PomodoroWidget(AppSettings *settings, NotificationService *notificationService, QWidget *parent)
     : QWidget(parent)
-    , m_timer(new PomodoroTimer(this))
+    , m_timer(new PomodoroTimer(settings, this))
     , m_notificationService(notificationService)
 {
     m_currentTaskLabel = new QLabel("No task selected", this);
@@ -51,14 +51,8 @@ PomodoroWidget::PomodoroWidget(NotificationService *notificationService, QWidget
     connect(m_timer, &PomodoroTimer::modeChanged, this, &PomodoroWidget::onModeChanged);
     connect(m_timer, &PomodoroTimer::pomodoroCompleted, this, &PomodoroWidget::onPomodoroCompleted);
 
-    connect(m_startButton, &QPushButton::clicked, this, [this]() {
-        m_timer->start();
-        setRunningButtonsState(true);
-    });
-    connect(m_pauseButton, &QPushButton::clicked, this, [this]() {
-        m_timer->pause();
-        setRunningButtonsState(false);
-    });
+    connect(m_startButton, &QPushButton::clicked, this, &PomodoroWidget::toggleStartPause);
+    connect(m_pauseButton, &QPushButton::clicked, this, &PomodoroWidget::toggleStartPause);
     connect(m_resetButton, &QPushButton::clicked, this, [this]() {
         m_timer->reset();
         setRunningButtonsState(false);
@@ -71,6 +65,17 @@ PomodoroWidget::PomodoroWidget(NotificationService *notificationService, QWidget
     updateModeDisplay(m_timer->mode());
     onTick(m_timer->remainingSeconds());
     onPomodoroCompleted(m_timer->completedPomodoros());
+}
+
+void PomodoroWidget::toggleStartPause()
+{
+    if (m_timer->isRunning()) {
+        m_timer->pause();
+        setRunningButtonsState(false);
+    } else {
+        m_timer->start();
+        setRunningButtonsState(true);
+    }
 }
 
 void PomodoroWidget::startForTask(int eventId, const QString &taskLabel)

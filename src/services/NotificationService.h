@@ -3,6 +3,8 @@
 #include <QObject>
 #include <QSystemTrayIcon>
 
+class AppSettings;
+
 // Обёртка над QSystemTrayIcon для показа desktop-уведомлений.
 //
 // Почему QSystemTrayIcon, а не прямой вызов D-Bus (org.freedesktop.Notifications)
@@ -15,14 +17,16 @@ class NotificationService : public QObject
     Q_OBJECT
 
 public:
-    explicit NotificationService(QObject *parent = nullptr);
+    explicit NotificationService(AppSettings *settings, QObject *parent = nullptr);
 
-    // Показывает системное уведомление. Если системный трей недоступен
-    // (бывает в некоторых минимальных окружениях/оконных менеджерах) -
-    // тихо пишет предупреждение в консоль и ничего не показывает,
-    // приложение при этом не падает и продолжает работать как обычно.
+    // Показывает системное уведомление. Ничего не делает, если пользователь
+    // выключил уведомления в настройках (Этап 8), а также если системный
+    // трей недоступен (бывает в некоторых минимальных окружениях/оконных
+    // менеджерах) - в этом случае просто пишет предупреждение в консоль,
+    // приложение при этом не падает.
     void showNotification(const QString &title, const QString &message);
 
 private:
+    AppSettings *m_settings;
     QSystemTrayIcon *m_trayIcon = nullptr;
 };

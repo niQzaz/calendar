@@ -1,7 +1,9 @@
 #include "PomodoroTimer.h"
+#include "AppSettings.h"
 
-PomodoroTimer::PomodoroTimer(QObject *parent)
+PomodoroTimer::PomodoroTimer(AppSettings *settings, QObject *parent)
     : QObject(parent)
+    , m_settings(settings)
     , m_timer(new QTimer(this))
 {
     m_remainingSeconds = durationForMode(m_mode);
@@ -13,13 +15,13 @@ int PomodoroTimer::durationForMode(PomodoroMode mode) const
 {
     switch (mode) {
     case PomodoroMode::Work:
-        return kWorkMinutes * 60;
+        return m_settings->workMinutes() * 60;
     case PomodoroMode::ShortBreak:
-        return kShortBreakMinutes * 60;
+        return m_settings->shortBreakMinutes() * 60;
     case PomodoroMode::LongBreak:
-        return kLongBreakMinutes * 60;
+        return m_settings->longBreakMinutes() * 60;
     }
-    return kWorkMinutes * 60;
+    return m_settings->workMinutes() * 60;
 }
 
 bool PomodoroTimer::isRunning() const

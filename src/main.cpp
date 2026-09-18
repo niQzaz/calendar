@@ -2,6 +2,7 @@
 #include <QPalette>
 
 #include "ui/MainWindow.h"
+#include "services/AppSettings.h"
 
 namespace {
 
@@ -83,12 +84,102 @@ void applyDarkTheme(QApplication &app)
     app.setStyleSheet(qss);
 }
 
+// Светлая тема (Этап 8) - та же структура QSS, что и у тёмной,
+// просто с другими цветами. Отдельная функция вместо параметризации
+// одной общей ради ясности: тут всего два варианта темы, и держать
+// в голове "какой цвет от какого параметра" было бы сложнее, чем просто
+// читать два похожих, но самостоятельных списка цветов.
+void applyLightTheme(QApplication &app)
+{
+    app.setStyle("Fusion");
+
+    QPalette palette;
+    palette.setColor(QPalette::Window, QColor(245, 245, 247));
+    palette.setColor(QPalette::WindowText, Qt::black);
+    palette.setColor(QPalette::Base, QColor(255, 255, 255));
+    palette.setColor(QPalette::AlternateBase, QColor(235, 235, 238));
+    palette.setColor(QPalette::Text, Qt::black);
+    palette.setColor(QPalette::Button, QColor(230, 230, 233));
+    palette.setColor(QPalette::ButtonText, Qt::black);
+    palette.setColor(QPalette::Highlight, QColor(74, 108, 247));
+    palette.setColor(QPalette::HighlightedText, Qt::white);
+    app.setPalette(palette);
+
+    const QString qss = R"(
+        QPushButton#dayButton {
+            border: none;
+            border-radius: 6px;
+            background-color: #eaeaee;
+            color: #1a1a1a;
+        }
+        QPushButton#dayButton:hover {
+            background-color: #dcdce2;
+        }
+        QPushButton#dayButton:checked {
+            background-color: #4a6cf7;
+            color: white;
+            font-weight: bold;
+        }
+        QPushButton#dayButton[otherMonth="true"] {
+            color: #a0a0a5;
+        }
+        QPushButton#dayButton[isToday="true"] {
+            border: 1px solid #4a6cf7;
+        }
+        QPushButton#dayButton[hasEvents="true"] {
+            border-bottom: 3px solid #d98a1f;
+        }
+        QLabel#monthLabel {
+            font-size: 16px;
+            font-weight: bold;
+        }
+        QLabel#weekDayLabel {
+            color: #6b6b70;
+        }
+        QLabel#selectedDateLabel {
+            font-size: 14px;
+            font-weight: bold;
+            padding-bottom: 4px;
+        }
+        QLabel#hintLabel {
+            color: #6b6b70;
+            font-size: 11px;
+        }
+        QLabel#currentTaskLabel {
+            font-size: 13px;
+            font-weight: bold;
+            color: #2a2a2a;
+        }
+        QLabel#pomodoroModeLabel {
+            font-size: 14px;
+            color: #6b6b70;
+        }
+        QLabel#pomodoroTimeLabel {
+            font-size: 48px;
+            font-weight: bold;
+        }
+        QLabel#pomodoroCompletedLabel {
+            color: #6b6b70;
+        }
+    )";
+    app.setStyleSheet(qss);
+}
+
 } // namespace
 
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
-    applyDarkTheme(app);
+
+    // Тема читается из настроек один раз при старте (Этап 8). Смена темы
+    // "на лету" из диалога настроек не делается - слишком много мест
+    // пришлось бы перекрашивать вручную ради не такой уж частой операции;
+    // вместо этого после смены темы предлагается перезапустить приложение.
+    AppSettings settings;
+    if (settings.theme() == AppTheme::Light)
+        applyLightTheme(app);
+    else
+        applyDarkTheme(app);
 
     MainWindow window;
     window.show();

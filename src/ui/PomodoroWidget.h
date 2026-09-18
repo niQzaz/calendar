@@ -7,6 +7,7 @@
 class QLabel;
 class QPushButton;
 class NotificationService;
+class AppSettings;
 
 // PomodoroWidget - только отображение и кнопки.
 //
@@ -20,13 +21,18 @@ class PomodoroWidget : public QWidget
     Q_OBJECT
 
 public:
-    explicit PomodoroWidget(NotificationService *notificationService = nullptr, QWidget *parent = nullptr);
+    explicit PomodoroWidget(AppSettings *settings, NotificationService *notificationService = nullptr, QWidget *parent = nullptr);
 
     // Привязывает таймер к конкретному событию: показывает taskLabel
     // как текущую задачу, принудительно начинает свежий рабочий отрезок
     // и сразу запускает отсчёт. Если до этого был активен другой
     // отрезок (для той же или другой задачи) - он прерывается.
     void startForTask(int eventId, const QString &taskLabel);
+
+public slots:
+    // Start, если таймер сейчас на паузе/не запущен; Pause, если запущен.
+    // Используется и кнопками Start/Pause, и горячей клавишей (Этап 8).
+    void toggleStartPause();
 
 signals:
     // Испускается, когда завершается рабочий отрезок, привязанный

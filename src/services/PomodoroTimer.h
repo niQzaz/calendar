@@ -3,6 +3,8 @@
 #include <QObject>
 #include <QTimer>
 
+class AppSettings;
+
 // Режим Pomodoro-таймера: рабочий отрезок, короткий или длинный перерыв.
 enum class PomodoroMode
 {
@@ -20,15 +22,16 @@ enum class PomodoroMode
 // в какой режим переключиться дальше, и останавливается - следующую фазу
 // нужно запустить вызовом start() (обычно по нажатию кнопки в UI).
 //
-// Каждый переход/тик оборачивается в сигнал (tick/modeChanged/
-// pomodoroCompleted), поэтому PomodoroWidget (или в будущем - виджет
-// из Этапа 4/11) может просто подписаться и не знать, как считается время.
+// Длительности фаз (Этап 8) берутся из AppSettings при каждом переключении
+// режима, а не зашиты в код - значит, если пользователь поменяет их
+// в настройках, следующая же фаза (или Reset текущей) будет уже новой
+// длины, без необходимости перезапускать приложение.
 class PomodoroTimer : public QObject
 {
     Q_OBJECT
 
 public:
-    explicit PomodoroTimer(QObject *parent = nullptr);
+    explicit PomodoroTimer(AppSettings *settings, QObject *parent = nullptr);
 
     PomodoroMode mode() const { return m_mode; }
     int remainingSeconds() const { return m_remainingSeconds; }
@@ -60,11 +63,12 @@ private:
     int durationForMode(PomodoroMode mode) const;
     void switchToMode(PomodoroMode mode);
 
-    static constexpr int kWorkMinutes = 25;
-    static constexpr int kShortBreakMinutes = 5;
-    static constexpr int kLongBreakMinutes = 15;
+    // Сколько pomodoro подряд нужно завершить, чтобы наступил длинный
+    // перерыв - это особенность техники Pomodoro, а не то, что имеет
+    // смысл делать настраиваемым (в задании такого пункта нет).
     static constexpr int kPomodorosUntilLongBreak = 4;
 
+    AppSettings *m_settings;
     QTimer *m_timer;
     PomodoroMode m_mode = PomodoroMode::Work;
     int m_remainingSeconds;

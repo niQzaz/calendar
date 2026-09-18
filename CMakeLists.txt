@@ -28,6 +28,8 @@ add_executable(QtCalendarApp
     src/services/NotificationService.cpp
     src/services/EventReminder.h
     src/services/EventReminder.cpp
+    src/services/AppSettings.h
+    src/services/AppSettings.cpp
     src/ui/MainWindow.h
     src/ui/MainWindow.cpp
     src/ui/CalendarWidget.h
@@ -36,6 +38,8 @@ add_executable(QtCalendarApp
     src/ui/EventDialog.cpp
     src/ui/PomodoroWidget.h
     src/ui/PomodoroWidget.cpp
+    src/ui/SettingsDialog.h
+    src/ui/SettingsDialog.cpp
 )
 
 target_include_directories(QtCalendarApp PRIVATE src)

@@ -4,6 +4,7 @@
 #include <QDate>
 
 #include "services/EventManager.h"
+#include "services/AppSettings.h"
 
 class CalendarWidget;
 class PomodoroWidget;
@@ -13,6 +14,7 @@ class QListWidget;
 class QListWidgetItem;
 class QLabel;
 class QPushButton;
+class QAction;
 
 // Главное окно приложения.
 //
@@ -37,10 +39,12 @@ private slots:
     void onPomodoroCompletedForEvent(int eventId);
     void onImportCsvClicked();
     void onVisibleRangeChanged(const QDate &start, const QDate &end);
+    void onSettingsClicked();
 
 private:
     void refreshEventsList();
     void refreshCalendarMarkers();
+    void applyShortcuts(); // выставляет QKeySequence каждому QAction из AppSettings
 
     CalendarWidget *m_calendar = nullptr;
     QListWidget *m_eventsList = nullptr;
@@ -51,6 +55,14 @@ private:
     PomodoroWidget *m_pomodoro = nullptr;
     NotificationService *m_notificationService = nullptr;
     EventReminder *m_eventReminder = nullptr;
+
+    // Этап 8: настройки приложения (QSettings-обёртка) и действия
+    // с настраиваемыми горячими клавишами.
+    AppSettings m_settings;
+    QAction *m_newEventAction = nullptr;
+    QAction *m_importCsvAction = nullptr;
+    QAction *m_goToTodayAction = nullptr;
+    QAction *m_togglePomodoroAction = nullptr;
 
     // Видимый диапазон сетки календаря - обновляется по сигналу
     // CalendarWidget::visibleRangeChanged, используется в refreshCalendarMarkers().

@@ -9,7 +9,8 @@
 #include <QStringList>
 
 namespace {
-const QStringList kWeekDayNames = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
+const QStringList kWeekDayNamesMondayFirst = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
+const QStringList kWeekDayNamesSundayFirst = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
 const QStringList kMonthNames = {
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December"
@@ -53,11 +54,13 @@ CalendarWidget::CalendarWidget(QWidget *parent)
 
     // --- Названия дней недели ---
     auto *weekDaysLayout = new QHBoxLayout();
-    for (const QString &name : kWeekDayNames) {
-        auto *label = new QLabel(name, this);
+    m_weekDayLabels.reserve(7);
+    for (int i = 0; i < 7; ++i) {
+        auto *label = new QLabel(this);
         label->setAlignment(Qt::AlignCenter);
         label->setObjectName("weekDayLabel");
         weekDaysLayout->addWidget(label);
+        m_weekDayLabels.append(label);
     }
     rootLayout->addLayout(weekDaysLayout);
 
@@ -84,12 +87,20 @@ CalendarWidget::CalendarWidget(QWidget *parent)
 
     rootLayout->addStretch();
 
+    updateWeekDayLabels();
     rebuildGrid();
 }
 
 void CalendarWidget::updateHeaderLabel()
 {
     m_monthLabel->setText(QString("%1 %2").arg(kMonthNames[m_month - 1]).arg(m_year));
+}
+
+void CalendarWidget::updateWeekDayLabels()
+{
+    const QStringList &names = m_sundayFirst ? kWeekDayNamesSundayFirst : kWeekDayNamesMondayFirst;
+    for (int i = 0; i < 7; ++i)
+        m_weekDayLabels[i]->setText(names[i]);
 }
 
 void CalendarWidget::rebuildGrid()
@@ -99,8 +110,13 @@ void CalendarWidget::rebuildGrid()
     const QDate firstOfMonth(m_year, m_month, 1);
 
     // dayOfWeek(): 1 = понедельник ... 7 = воскресенье.
-    // Столько пустых ячеек нужно оставить перед 1-м числом месяца.
-    const int leadingEmptyCells = firstOfMonth.dayOfWeek() - 1;
+    // Столько пустых ячеек нужно оставить перед 1-м числом месяца -
+    // зависит от того, с какого дня недели начинается сетка (Этап 8):
+    // при неделе с понедельника колонка 0 - это Пн (dayOfWeek()==1 → 0 отступа),
+    // при неделе с воскресенья колонка 0 - это Вс (dayOfWeek()==7 → 0 отступа).
+    const int leadingEmptyCells = m_sundayFirst
+        ? (firstOfMonth.dayOfWeek() % 7)
+        : (firstOfMonth.dayOfWeek() - 1);
     const QDate today = QDate::currentDate();
 
     for (int i = 0; i < 42; ++i) {
@@ -134,6 +150,17 @@ void CalendarWidget::setDatesWithEvents(const QSet<QDate> &dates)
 {
     m_datesWithEvents = dates;
     rebuildGrid();
+}
+
+void CalendarWidget::setFirstDayOfWeek(bool sundayFirst)
+{
+    if (m_sundayFirst == sundayFirst)
+        return;
+
+    m_sundayFirst = sundayFirst;
+    updateWeekDayLabels();
+    rebuildGrid();
+    emit visibleRangeChanged(m_cellDates.first(), m_cellDates.last());
 }
 
 void CalendarWidget::goToPreviousMonth()

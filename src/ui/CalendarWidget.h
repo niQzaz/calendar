@@ -58,6 +58,10 @@ public slots:
     void goToToday();
     void setSelectedDate(const QDate &date);
 
+    // Этап 8: false - неделя с понедельника (по умолчанию), true - с воскресенья.
+    // Пересобирает и заголовок недели, и сетку дней.
+    void setFirstDayOfWeek(bool sundayFirst);
+
 signals:
     // Испускается при выборе пользователем дня в сетке
     // (в т.ч. при программном вызове setSelectedDate/goToToday).
@@ -70,15 +74,18 @@ signals:
 private:
     void rebuildGrid();
     void updateHeaderLabel();
+    void updateWeekDayLabels(); // текст меток Mon..Sun / Sun..Sat в зависимости от m_sundayFirst
     void onDayButtonClicked(int cellIndex);
 
     int m_year;
     int m_month; // 1-12
     QDate m_selectedDate;
     QSet<QDate> m_datesWithEvents;
+    bool m_sundayFirst = false; // false = неделя с понедельника
 
     QLabel *m_monthLabel = nullptr;
     QGridLayout *m_gridLayout = nullptr;
+    QVector<QLabel *> m_weekDayLabels;   // 7 меток дней недели, создаются один раз
     QVector<QPushButton *> m_dayButtons; // 42 кнопки сетки, создаются один раз
     QVector<QDate> m_cellDates;          // дата, соответствующая каждой кнопке
 };
