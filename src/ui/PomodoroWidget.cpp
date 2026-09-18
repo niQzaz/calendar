@@ -1,13 +1,15 @@
 #include "PomodoroWidget.h"
+#include "services/NotificationService.h"
 
 #include <QLabel>
 #include <QPushButton>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 
-PomodoroWidget::PomodoroWidget(QWidget *parent)
+PomodoroWidget::PomodoroWidget(NotificationService *notificationService, QWidget *parent)
     : QWidget(parent)
     , m_timer(new PomodoroTimer(this))
+    , m_notificationService(notificationService)
 {
     m_currentTaskLabel = new QLabel("No task selected", this);
     m_currentTaskLabel->setAlignment(Qt::AlignCenter);
@@ -63,7 +65,10 @@ PomodoroWidget::PomodoroWidget(QWidget *parent)
     });
 
     // Начальное отображение: режим Work, полное время, 0 завершённых.
-    onModeChanged(m_timer->mode());
+    // Здесь именно updateModeDisplay(), а не onModeChanged() - последний
+    // ещё и шлёт уведомление, а при отрисовке начального состояния
+    // никакого уведомления быть не должно (фаза ведь не "закончилась").
+    updateModeDisplay(m_timer->mode());
     onTick(m_timer->remainingSeconds());
     onPomodoroCompleted(m_timer->completedPomodoros());
 }
@@ -88,6 +93,21 @@ void PomodoroWidget::onTick(int remainingSeconds)
 }
 
 void PomodoroWidget::onModeChanged(PomodoroMode mode)
+{
+    updateModeDisplay(mode);
+
+    // Уведомляем только здесь - в слоте, подключённом к реальному сигналу
+    // PomodoroTimer::modeChanged, который срабатывает именно при завершении
+    // фазы, а не при первичной отрисовке виджета.
+    if (m_notificationService) {
+        if (mode == PomodoroMode::Work)
+            m_notificationService->showNotification("Break finished", "Time to focus again.");
+        else
+            m_notificationService->showNotification("Pomodoro finished", "Time for a break.");
+    }
+}
+
+void PomodoroWidget::updateModeDisplay(PomodoroMode mode)
 {
     m_modeLabel->setText(modeDisplayName(mode).toUpper());
 

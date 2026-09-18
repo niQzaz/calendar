@@ -7,6 +7,8 @@
 
 class CalendarWidget;
 class PomodoroWidget;
+class NotificationService;
+class EventReminder;
 class QListWidget;
 class QListWidgetItem;
 class QLabel;
@@ -47,6 +49,8 @@ private:
     QPushButton *m_deleteEventButton = nullptr;
     QPushButton *m_startPomodoroButton = nullptr;
     PomodoroWidget *m_pomodoro = nullptr;
+    NotificationService *m_notificationService = nullptr;
+    EventReminder *m_eventReminder = nullptr;
 
     // Видимый диапазон сетки календаря - обновляется по сигналу
     // CalendarWidget::visibleRangeChanged, используется в refreshCalendarMarkers().

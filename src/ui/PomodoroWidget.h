@@ -6,6 +6,7 @@
 
 class QLabel;
 class QPushButton;
+class NotificationService;
 
 // PomodoroWidget - только отображение и кнопки.
 //
@@ -19,7 +20,7 @@ class PomodoroWidget : public QWidget
     Q_OBJECT
 
 public:
-    explicit PomodoroWidget(QWidget *parent = nullptr);
+    explicit PomodoroWidget(NotificationService *notificationService = nullptr, QWidget *parent = nullptr);
 
     // Привязывает таймер к конкретному событию: показывает taskLabel
     // как текущую задачу, принудительно начинает свежий рабочий отрезок
@@ -42,8 +43,10 @@ private:
     static QString formatTime(int totalSeconds);
     static QString modeDisplayName(PomodoroMode mode);
     void setRunningButtonsState(bool running);
+    void updateModeDisplay(PomodoroMode mode); // только текст/кнопки, без уведомления
 
     PomodoroTimer *m_timer;
+    NotificationService *m_notificationService = nullptr;
     int m_linkedEventId = -1; // -1 = таймер не привязан к конкретному событию
 
     QLabel *m_currentTaskLabel = nullptr;

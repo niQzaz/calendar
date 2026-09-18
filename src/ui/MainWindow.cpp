@@ -3,6 +3,8 @@
 #include "EventDialog.h"
 #include "PomodoroWidget.h"
 #include "services/CsvImporter.h"
+#include "services/NotificationService.h"
+#include "services/EventReminder.h"
 
 #include <QListWidget>
 #include <QListWidgetItem>
@@ -27,7 +29,9 @@ MainWindow::MainWindow(QWidget *parent)
     connect(importAction, &QAction::triggered, this, &MainWindow::onImportCsvClicked);
 
     m_calendar = new CalendarWidget(this);
-    m_pomodoro = new PomodoroWidget(this);
+    m_notificationService = new NotificationService(this);
+    m_pomodoro = new PomodoroWidget(m_notificationService, this);
+    m_eventReminder = new EventReminder(&m_eventManager, m_notificationService, this);
 
     // --- Правая панель: события выбранного дня ---
     auto *rightPanel = new QWidget(this);
