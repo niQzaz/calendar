@@ -1,5 +1,5 @@
 #include "MainWindow.h"
-#include "CalendarWidget.h"
+#include "CalendarView.h"
 #include "EventDialog.h"
 #include "PomodoroWidget.h"
 #include "SettingsDialog.h"
@@ -34,17 +34,17 @@ MainWindow::MainWindow(QWidget *parent)
 
     auto *fileMenu = menuBar()->addMenu("File");
 
-    m_calendar = new CalendarWidget(this);
+    m_calendarView = new CalendarView(this);
     m_notificationService = new NotificationService(&m_settings, this);
     m_pomodoro = new PomodoroWidget(&m_settings, m_notificationService, this);
     m_eventReminder = new EventReminder(&m_eventManager, m_notificationService, this);
 
-    m_calendar->setFirstDayOfWeek(m_settings.sundayFirst());
-    m_calendar->setTheme(m_themeManager->currentTheme());
-    connect(m_themeManager, &ThemeManager::themeChanged, m_calendar, &CalendarWidget::setTheme);
+    m_calendarView->setFirstDayOfWeek(m_settings.sundayFirst());
+    m_calendarView->setTheme(m_themeManager->currentTheme());
+    connect(m_themeManager, &ThemeManager::themeChanged, m_calendarView, &CalendarView::setTheme);
 
     // Действия меню создаём только теперь - m_togglePomodoroAction
-    // подключается напрямую к m_pomodoro, а m_goToTodayAction - к m_calendar
+    // подключается напрямую к m_pomodoro, а m_goToTodayAction - к m_calendarView
     // (через лямбду), оба должны уже существовать к этому моменту.
     m_newEventAction = new QAction("New event", this);
     connect(m_newEventAction, &QAction::triggered, this, &MainWindow::onAddEventClicked);
@@ -62,7 +62,7 @@ MainWindow::MainWindow(QWidget *parent)
     // Today и Pomodoro в меню не показываем - они нужны только как
     // горячие клавиши, поэтому addAction(this), а не в меню.
     m_goToTodayAction = new QAction(this);
-    connect(m_goToTodayAction, &QAction::triggered, this, [this]() { m_calendar->goToToday(); });
+    connect(m_goToTodayAction, &QAction::triggered, this, [this]() { m_calendarView->goToToday(); });
     addAction(m_goToTodayAction);
 
     m_togglePomodoroAction = new QAction(this);
@@ -71,25 +71,26 @@ MainWindow::MainWindow(QWidget *parent)
 
     applyShortcuts();
 
-    // --- Правая панель: события выбранного дня ---
-    auto *rightPanel = new QWidget(this);
-    auto *rightLayout = new QVBoxLayout(rightPanel);
+    // --- Правая панель: события выбранного дня (видна только в Month View -
+    // в Week/Day события показываются прямо внутри временной сетки) ---
+    m_rightPanel = new QWidget(this);
+    auto *rightLayout = new QVBoxLayout(m_rightPanel);
 
-    m_selectedDateLabel = new QLabel(rightPanel);
+    m_selectedDateLabel = new QLabel(m_rightPanel);
     m_selectedDateLabel->setObjectName("selectedDateLabel");
 
-    m_eventsList = new QListWidget(rightPanel);
+    m_eventsList = new QListWidget(m_rightPanel);
     m_eventsList->setObjectName("eventsList");
 
-    auto *hintLabel = new QLabel("Double-click an event to edit it", rightPanel);
+    auto *hintLabel = new QLabel("Double-click an event to edit it", m_rightPanel);
     hintLabel->setObjectName("hintLabel");
 
-    m_addEventButton = new QPushButton("+ Add event", rightPanel);
+    m_addEventButton = new QPushButton("+ Add event", m_rightPanel);
     m_addEventButton->setObjectName("panelButton");
-    m_deleteEventButton = new QPushButton("Delete event", rightPanel);
+    m_deleteEventButton = new QPushButton("Delete event", m_rightPanel);
     m_deleteEventButton->setObjectName("panelButton");
     m_deleteEventButton->setEnabled(false);
-    m_startPomodoroButton = new QPushButton("Start Pomodoro", rightPanel);
+    m_startPomodoroButton = new QPushButton("Start Pomodoro", m_rightPanel);
     m_startPomodoroButton->setObjectName("panelButton");
     m_startPomodoroButton->setEnabled(false);
 
@@ -101,8 +102,8 @@ MainWindow::MainWindow(QWidget *parent)
     rightLayout->addWidget(m_startPomodoroButton);
 
     auto *splitter = new QSplitter(this);
-    splitter->addWidget(m_calendar);
-    splitter->addWidget(rightPanel);
+    splitter->addWidget(m_calendarView);
+    splitter->addWidget(m_rightPanel);
     splitter->addWidget(m_pomodoro);
     splitter->setStretchFactor(0, 2);
     splitter->setStretchFactor(1, 1);
@@ -118,23 +119,24 @@ MainWindow::MainWindow(QWidget *parent)
     centralLayout->addWidget(splitter);
     setCentralWidget(centralContainer);
 
-    connect(m_calendar, &CalendarWidget::dateSelected, this, &MainWindow::onDateSelected);
+    connect(m_calendarView, &CalendarView::dateSelected, this, &MainWindow::onDateSelected);
     connect(m_addEventButton, &QPushButton::clicked, this, &MainWindow::onAddEventClicked);
     connect(m_deleteEventButton, &QPushButton::clicked, this, &MainWindow::onDeleteEventClicked);
     connect(m_eventsList, &QListWidget::itemSelectionChanged, this, &MainWindow::onEventSelectionChanged);
     connect(m_eventsList, &QListWidget::itemDoubleClicked, this, &MainWindow::onEventDoubleClicked);
     connect(m_startPomodoroButton, &QPushButton::clicked, this, &MainWindow::onStartPomodoroClicked);
     connect(m_pomodoro, &PomodoroWidget::pomodoroCompletedForEvent, this, &MainWindow::onPomodoroCompletedForEvent);
-    connect(m_calendar, &CalendarWidget::visibleRangeChanged, this, &MainWindow::onVisibleRangeChanged);
-    connect(m_calendar, &CalendarWidget::createEventRequested, this, &MainWindow::onCreateEventRequested);
-    connect(m_calendar, &CalendarWidget::editEventRequested, this, &MainWindow::onEditEventRequested);
+    connect(m_calendarView, &CalendarView::visibleRangeChanged, this, &MainWindow::onVisibleRangeChanged);
+    connect(m_calendarView, &CalendarView::createEventRequested, this, &MainWindow::onCreateEventRequested);
+    connect(m_calendarView, &CalendarView::editEventRequested, this, &MainWindow::onEditEventRequested);
+    connect(m_calendarView, &CalendarView::viewModeChanged, this, &MainWindow::onCalendarViewModeChanged);
 
-    // Инициализируем правую панель для дня, который CalendarWidget
+    // Инициализируем правую панель для дня, который CalendarView
     // выбрал по умолчанию (сегодня), и сразу подсвечиваем в сетке дни,
     // на которые уже есть события, загруженные из БД с прошлого запуска.
-    m_visibleRangeStart = m_calendar->visibleRangeStart();
-    m_visibleRangeEnd = m_calendar->visibleRangeEnd();
-    onDateSelected(m_calendar->selectedDate());
+    m_visibleRangeStart = m_calendarView->monthVisibleRangeStart();
+    m_visibleRangeEnd = m_calendarView->monthVisibleRangeEnd();
+    onDateSelected(m_calendarView->selectedDate());
     refreshCalendarMarkers();
 }
 
@@ -148,7 +150,7 @@ void MainWindow::refreshEventsList()
 {
     m_eventsList->clear();
 
-    const QDate date = m_calendar->selectedDate();
+    const QDate date = m_calendarView->selectedDate();
     const QVector<Event> events = m_eventManager.eventsForDate(date);
 
     for (const Event &event : events) {
@@ -185,7 +187,7 @@ void MainWindow::refreshCalendarMarkers()
     for (const Event &event : events)
         eventsByDate[event.date].append(event);
 
-    m_calendar->setEventsForVisibleRange(eventsByDate);
+    m_calendarView->setEventsForVisibleRange(eventsByDate);
 }
 
 void MainWindow::onVisibleRangeChanged(const QDate &start, const QDate &end)
@@ -195,9 +197,19 @@ void MainWindow::onVisibleRangeChanged(const QDate &start, const QDate &end)
     refreshCalendarMarkers();
 }
 
+void MainWindow::onCalendarViewModeChanged(CalendarViewMode mode)
+{
+    // Панель со списком событий имеет смысл только в Month View - в Week/Day
+    // события показываются прямо внутри временной сетки (когда она появится
+    // в Phase E/F), отдельный список там был бы дублированием той же
+    // информации. Pomodoro-панель пока не трогаем - её возможный переезд
+    // в шапку окна обсуждали отдельно и это не входит в Phase D.
+    m_rightPanel->setVisible(mode == CalendarViewMode::Month);
+}
+
 void MainWindow::onAddEventClicked()
 {
-    openNewEventDialog(m_calendar->selectedDate());
+    openNewEventDialog(m_calendarView->selectedDate());
 }
 
 void MainWindow::openNewEventDialog(const QDate &defaultDate)
@@ -348,7 +360,7 @@ void MainWindow::onSettingsClicked()
 
     // Тема уже применена живьём самим ThemeManager (внутри SettingsDialog::onAccept).
     // Здесь применяем то, что ThemeManager не касается.
-    m_calendar->setFirstDayOfWeek(m_settings.sundayFirst());
+    m_calendarView->setFirstDayOfWeek(m_settings.sundayFirst());
     applyShortcuts();
 }
 

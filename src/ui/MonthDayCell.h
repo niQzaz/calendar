@@ -11,12 +11,12 @@
 // Одна ячейка дня в сетке месяца.
 //
 // MonthDayCell - самостоятельный QWidget на ячейку (42 штуки в QGridLayout
-// у CalendarWidget), с кастомной отрисовкой через paintEvent(), что даёт
+// у MonthView), с кастомной отрисовкой через paintEvent(), что даёт
 // полный контроль над видом: номер дня, состояния today/selected/other-month,
 // и до kMaxVisibleEvents мини-карточек событий с "+K more" при переполнении.
 //
 // Цвета берутся из Theme (см. setTheme()), а не захардкожены - при смене
-// темы в настройках CalendarWidget прокидывает новую Theme в каждую ячейку,
+// темы в настройках MonthView прокидывает новую Theme в каждую ячейку,
 // и она сама перерисовывается.
 class MonthDayCell : public QWidget
 {

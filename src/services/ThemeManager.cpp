@@ -163,6 +163,22 @@ QString ThemeManager::buildStyleSheet(const Theme &theme)
             background-color: @accentHoverTranslucent@;
         }
 
+        QPushButton#viewSwitcherButton {
+            border: none;
+            border-radius: 6px;
+            padding: 4px 14px;
+            background-color: transparent;
+            color: @textSecondary@;
+        }
+        QPushButton#viewSwitcherButton:hover {
+            background-color: @surfaceElevated@;
+        }
+        QPushButton#viewSwitcherButton:checked {
+            background-color: @surface@;
+            color: @text@;
+            font-weight: bold;
+        }
+
         QPushButton#panelButton {
             border: none;
             border-radius: 6px;

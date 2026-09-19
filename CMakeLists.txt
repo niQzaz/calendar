@@ -35,8 +35,15 @@ add_executable(QtCalendarApp
     src/services/ThemeManager.cpp
     src/ui/MainWindow.h
     src/ui/MainWindow.cpp
-    src/ui/CalendarWidget.h
-    src/ui/CalendarWidget.cpp
+    src/ui/CalendarView.h
+    src/ui/CalendarView.cpp
+    src/ui/ICalendarPage.h
+    src/ui/MonthView.h
+    src/ui/MonthView.cpp
+    src/ui/WeekView.h
+    src/ui/WeekView.cpp
+    src/ui/DayView.h
+    src/ui/DayView.cpp
     src/ui/MonthDayCell.h
     src/ui/MonthDayCell.cpp
     src/ui/EventDialog.h

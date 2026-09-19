@@ -6,7 +6,8 @@
 #include "services/EventManager.h"
 #include "services/AppSettings.h"
 
-class CalendarWidget;
+class CalendarView;
+enum class CalendarViewMode;
 class PomodoroWidget;
 class NotificationService;
 class EventReminder;
@@ -43,6 +44,7 @@ private slots:
     void onSettingsClicked();
     void onCreateEventRequested(const QDate &date);   // двойной клик по пустому месту ячейки
     void onEditEventRequested(int eventId);            // двойной клик по мини-карточке события
+    void onCalendarViewModeChanged(CalendarViewMode mode);
 
 private:
     void refreshEventsList();
@@ -55,7 +57,8 @@ private:
     void openNewEventDialog(const QDate &defaultDate);
     void openEditEventDialog(int eventId);
 
-    CalendarWidget *m_calendar = nullptr;
+    CalendarView *m_calendarView = nullptr;
+    QWidget *m_rightPanel = nullptr; // скрывается в Week/Day - там события внутри сетки
     QListWidget *m_eventsList = nullptr;
     QLabel *m_selectedDateLabel = nullptr;
     QPushButton *m_addEventButton = nullptr;
@@ -75,7 +78,7 @@ private:
     QAction *m_togglePomodoroAction = nullptr;
 
     // Видимый диапазон сетки календаря - обновляется по сигналу
-    // CalendarWidget::visibleRangeChanged, используется в refreshCalendarMarkers().
+    // CalendarView::visibleRangeChanged, используется в refreshCalendarMarkers().
     QDate m_visibleRangeStart;
     QDate m_visibleRangeEnd;
 
