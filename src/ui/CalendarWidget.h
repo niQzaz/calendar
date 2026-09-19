@@ -6,6 +6,7 @@
 #include <QVector>
 
 #include "models/Event.h"
+#include "services/Theme.h"
 
 class QLabel;
 class QGridLayout;
@@ -52,6 +53,11 @@ public:
     // без событий - вызывающий код должен передавать события хотя бы для
     // всего видимого диапазона (visibleRangeStart()..visibleRangeEnd()).
     void setEventsForVisibleRange(const QMap<QDate, QVector<Event>> &eventsByDate);
+
+    // Прокидывает новую тему во все ячейки сетки (Phase C). CalendarWidget
+    // сам ничего не красит - он просто раздаёт Theme дальше, каждая
+    // MonthDayCell знает, как перерисоваться со своими цветами.
+    void setTheme(const Theme &theme);
 
 public slots:
     void goToPreviousMonth();

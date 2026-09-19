@@ -6,6 +6,7 @@
 #include "services/CsvImporter.h"
 #include "services/NotificationService.h"
 #include "services/EventReminder.h"
+#include "services/ThemeManager.h"
 
 #include <QListWidget>
 #include <QListWidgetItem>
@@ -26,6 +27,11 @@ MainWindow::MainWindow(QWidget *parent)
     setWindowTitle("Calendar");
     resize(900, 600);
 
+    // ThemeManager создаётся первым - его конструктор сразу применяет
+    // сохранённую тему ко всему приложению (палитра + QSS), прежде чем
+    // остальные виджеты этого окна будут созданы и показаны.
+    m_themeManager = new ThemeManager(&m_settings, this);
+
     auto *fileMenu = menuBar()->addMenu("File");
 
     m_calendar = new CalendarWidget(this);
@@ -34,6 +40,8 @@ MainWindow::MainWindow(QWidget *parent)
     m_eventReminder = new EventReminder(&m_eventManager, m_notificationService, this);
 
     m_calendar->setFirstDayOfWeek(m_settings.sundayFirst());
+    m_calendar->setTheme(m_themeManager->currentTheme());
+    connect(m_themeManager, &ThemeManager::themeChanged, m_calendar, &CalendarWidget::setTheme);
 
     // Действия меню создаём только теперь - m_togglePomodoroAction
     // подключается напрямую к m_pomodoro, а m_goToTodayAction - к m_calendar
@@ -334,20 +342,14 @@ void MainWindow::applyShortcuts()
 
 void MainWindow::onSettingsClicked()
 {
-    SettingsDialog dialog(&m_settings, this);
+    SettingsDialog dialog(&m_settings, m_themeManager, this);
     if (dialog.exec() != QDialog::Accepted)
         return;
 
-    // Применяем то, что можно применить без перезапуска.
+    // Тема уже применена живьём самим ThemeManager (внутри SettingsDialog::onAccept).
+    // Здесь применяем то, что ThemeManager не касается.
     m_calendar->setFirstDayOfWeek(m_settings.sundayFirst());
     applyShortcuts();
-
-    if (dialog.themeChanged()) {
-        QMessageBox::information(
-            this, "Theme changed",
-            "Restart the application for the theme change to take effect."
-        );
-    }
 }
 
 void MainWindow::onDeleteEventClicked()

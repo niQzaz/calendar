@@ -30,6 +30,9 @@ add_executable(QtCalendarApp
     src/services/EventReminder.cpp
     src/services/AppSettings.h
     src/services/AppSettings.cpp
+    src/services/Theme.h
+    src/services/ThemeManager.h
+    src/services/ThemeManager.cpp
     src/ui/MainWindow.h
     src/ui/MainWindow.cpp
     src/ui/CalendarWidget.h

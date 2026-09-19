@@ -59,12 +59,26 @@ void AppSettings::setLongBreakMinutes(int minutes)
 AppTheme AppSettings::theme() const
 {
     const QString value = m_settings.value("appearance/theme", "dark").toString();
-    return value == QLatin1String("light") ? AppTheme::Light : AppTheme::Dark;
+    if (value == QLatin1String("light")) return AppTheme::Light;
+    if (value == QLatin1String("purple")) return AppTheme::Purple;
+    if (value == QLatin1String("ocean")) return AppTheme::Ocean;
+    if (value == QLatin1String("forest")) return AppTheme::Forest;
+    if (value == QLatin1String("rose")) return AppTheme::Rose;
+    return AppTheme::Dark;
 }
 
 void AppSettings::setTheme(AppTheme theme)
 {
-    m_settings.setValue("appearance/theme", theme == AppTheme::Light ? "light" : "dark");
+    QString value;
+    switch (theme) {
+    case AppTheme::Light: value = "light"; break;
+    case AppTheme::Purple: value = "purple"; break;
+    case AppTheme::Ocean: value = "ocean"; break;
+    case AppTheme::Forest: value = "forest"; break;
+    case AppTheme::Rose: value = "rose"; break;
+    case AppTheme::Dark: value = "dark"; break;
+    }
+    m_settings.setValue("appearance/theme", value);
 }
 
 bool AppSettings::sundayFirst() const

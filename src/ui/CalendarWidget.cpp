@@ -156,6 +156,12 @@ void CalendarWidget::setEventsForVisibleRange(const QMap<QDate, QVector<Event>> 
     applyEventsToVisibleCells();
 }
 
+void CalendarWidget::setTheme(const Theme &theme)
+{
+    for (MonthDayCell *cell : m_dayCells)
+        cell->setTheme(theme);
+}
+
 void CalendarWidget::setFirstDayOfWeek(bool sundayFirst)
 {
     if (m_sundayFirst == sundayFirst)

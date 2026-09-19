@@ -3,35 +3,36 @@
 #include <QDialog>
 
 class AppSettings;
+class ThemeManager;
 class QSpinBox;
 class QComboBox;
 class QCheckBox;
 class QKeySequenceEdit;
 
-// Диалог настроек приложения (Этап 8).
+// Диалог настроек приложения.
 //
 // Простая форма поверх AppSettings: открывается по File → Settings...,
 // текущие значения читаются при открытии диалога, а сохраняются только
 // по нажатию OK - Cancel не должен менять ничего, поэтому запись
 // в AppSettings происходит целиком в onAccept(), а не по мере ввода.
+//
+// Тема (Phase C) - исключение из этого правила по своей природе: она
+// применяется через ThemeManager::setTheme() тоже только в onAccept(),
+// но сразу "вживую" (без перезапуска) - ThemeManager сам красит приложение
+// и оповещает custom-painted виджеты через сигнал.
 class SettingsDialog : public QDialog
 {
     Q_OBJECT
 
 public:
-    explicit SettingsDialog(AppSettings *settings, QWidget *parent = nullptr);
-
-    // true, если после закрытия с OK тема была изменена - MainWindow
-    // использует это, чтобы предложить перезапуск приложения (полноценную
-    // living-перекраску всех виджетов на лету делать не стали ради простоты).
-    bool themeChanged() const { return m_themeChanged; }
+    explicit SettingsDialog(AppSettings *settings, ThemeManager *themeManager, QWidget *parent = nullptr);
 
 private slots:
     void onAccept();
 
 private:
     AppSettings *m_settings;
-    bool m_themeChanged = false;
+    ThemeManager *m_themeManager;
 
     QSpinBox *m_workMinutesSpin = nullptr;
     QSpinBox *m_shortBreakSpin = nullptr;

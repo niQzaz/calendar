@@ -4,11 +4,15 @@
 #include <QKeySequence>
 #include <QString>
 
-// Тема оформления приложения.
+// Тема оформления приложения (Phase C: было только Dark/Light).
 enum class AppTheme
 {
     Dark,
-    Light
+    Light,
+    Purple,
+    Ocean,
+    Forest,
+    Rose
 };
 
 // Действия, для которых можно настроить горячую клавишу.

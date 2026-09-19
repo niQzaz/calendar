@@ -10,6 +10,7 @@ class CalendarWidget;
 class PomodoroWidget;
 class NotificationService;
 class EventReminder;
+class ThemeManager;
 class QListWidget;
 class QListWidgetItem;
 class QLabel;
@@ -63,6 +64,7 @@ private:
     PomodoroWidget *m_pomodoro = nullptr;
     NotificationService *m_notificationService = nullptr;
     EventReminder *m_eventReminder = nullptr;
+    ThemeManager *m_themeManager = nullptr;
 
     // Этап 8: настройки приложения (QSettings-обёртка) и действия
     // с настраиваемыми горячими клавишами.

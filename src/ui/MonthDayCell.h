@@ -6,20 +6,18 @@
 #include <QRect>
 
 #include "models/Event.h"
+#include "services/Theme.h"
 
 // Одна ячейка дня в сетке месяца.
 //
-// Раньше сетка строилась из обычных QPushButton с текстом-числом - это
-// было просто, но не позволяло показать сами события внутри ячейки.
-// MonthDayCell - по-прежнему один самостоятельный QWidget на ячейку
-// (архитектура та же: 42 виджета в QGridLayout), просто с кастомной
-// отрисовкой через paintEvent(), что даёт полный контроль над видом:
-// номер дня, состояния today/selected/other-month, и до kMaxVisibleEvents
-// мини-карточек событий с "+K more" при переполнении.
+// MonthDayCell - самостоятельный QWidget на ячейку (42 штуки в QGridLayout
+// у CalendarWidget), с кастомной отрисовкой через paintEvent(), что даёт
+// полный контроль над видом: номер дня, состояния today/selected/other-month,
+// и до kMaxVisibleEvents мини-карточек событий с "+K more" при переполнении.
 //
-// ВАЖНО (временно, до Phase C): цвета сейчас захардкожены под тёмную тему
-// приложения. Когда появится ThemeManager, отрисовка будет брать цвета
-// из Theme вместо констант ниже - сам layout/логика останутся прежними.
+// Цвета берутся из Theme (см. setTheme()), а не захардкожены - при смене
+// темы в настройках CalendarWidget прокидывает новую Theme в каждую ячейку,
+// и она сама перерисовывается.
 class MonthDayCell : public QWidget
 {
     Q_OBJECT
@@ -32,6 +30,7 @@ public:
     void setToday(bool isToday);
     void setSelected(bool selected);
     void setOtherMonth(bool otherMonth);
+    void setTheme(const Theme &theme);
 
     QDate date() const { return m_date; }
 
@@ -65,6 +64,8 @@ private:
     bool m_isToday = false;
     bool m_isSelected = false;
     bool m_isOtherMonth = false;
+    Theme m_theme = {}; // до первого setTheme() - пустая (чёрная) тема, но виджет
+                        // ещё не показан к этому моменту, так что не видно
 
     // Прямоугольники видимых мини-карточек событий, пересчитываются в paintEvent()
     // и используются в eventIdAt() для попадания курсора - чтобы не дублировать

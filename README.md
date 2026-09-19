@@ -86,3 +86,12 @@ date,start,end,subject,description
   - `Ctrl+I` - импорт CSV
   - `Ctrl+T` - перейти к сегодняшнему дню
   - `Ctrl+P` - Start/Pause Pomodoro
+
+## Темы оформления (Phase C)
+
+`File → Settings... → Theme`. Доступны: Dark, Light, Purple, Ocean, Forest,
+Rose. Применяется сразу по нажатию OK, без перезапуска приложения -
+`ThemeManager` красит палитру/QSS всего приложения и оповещает
+custom-painted виджеты (сетку месяца) отдельным сигналом, чтобы они
+перерисовались со своими цветами. Выбор сохраняется через `AppSettings`
+и восстанавливается при следующем запуске.

@@ -1,5 +1,6 @@
 #include "SettingsDialog.h"
 #include "services/AppSettings.h"
+#include "services/ThemeManager.h"
 
 #include <QSpinBox>
 #include <QComboBox>
@@ -10,9 +11,10 @@
 #include <QGroupBox>
 #include <QDialogButtonBox>
 
-SettingsDialog::SettingsDialog(AppSettings *settings, QWidget *parent)
+SettingsDialog::SettingsDialog(AppSettings *settings, ThemeManager *themeManager, QWidget *parent)
     : QDialog(parent)
     , m_settings(settings)
+    , m_themeManager(themeManager)
 {
     setWindowTitle("Settings");
 
@@ -40,9 +42,9 @@ SettingsDialog::SettingsDialog(AppSettings *settings, QWidget *parent)
 
     // --- Appearance & calendar ---
     m_themeCombo = new QComboBox(this);
-    m_themeCombo->addItem("Dark", static_cast<int>(AppTheme::Dark));
-    m_themeCombo->addItem("Light", static_cast<int>(AppTheme::Light));
-    m_themeCombo->setCurrentIndex(m_themeCombo->findData(static_cast<int>(settings->theme())));
+    for (AppTheme themeId : ThemeManager::allThemeIds())
+        m_themeCombo->addItem(ThemeManager::themeFor(themeId).name, static_cast<int>(themeId));
+    m_themeCombo->setCurrentIndex(m_themeCombo->findData(static_cast<int>(themeManager->currentThemeId())));
 
     m_firstDayCombo = new QComboBox(this);
     m_firstDayCombo->addItem("Monday", false);
@@ -88,14 +90,18 @@ SettingsDialog::SettingsDialog(AppSettings *settings, QWidget *parent)
 void SettingsDialog::onAccept()
 {
     const AppTheme newTheme = static_cast<AppTheme>(m_themeCombo->currentData().toInt());
-    m_themeChanged = (newTheme != m_settings->theme());
 
     m_settings->setWorkMinutes(m_workMinutesSpin->value());
     m_settings->setShortBreakMinutes(m_shortBreakSpin->value());
     m_settings->setLongBreakMinutes(m_longBreakSpin->value());
-    m_settings->setTheme(newTheme);
     m_settings->setSundayFirst(m_firstDayCombo->currentData().toBool());
     m_settings->setNotificationsEnabled(m_notificationsCheck->isChecked());
+
+    // Тема применяется через ThemeManager - он сам красит приложение заново
+    // и уведомляет custom-painted виджеты. AppSettings::setTheme() тоже
+    // вызывается, но уже изнутри ThemeManager::setTheme(), а не отсюда
+    // напрямую, чтобы не разойтись с тем, что реально применено.
+    m_themeManager->setTheme(newTheme);
 
     m_settings->setShortcut(ShortcutAction::NewEvent, m_newEventShortcutEdit->keySequence());
     m_settings->setShortcut(ShortcutAction::ImportCsv, m_importCsvShortcutEdit->keySequence());
