@@ -2,28 +2,21 @@
 
 #include <QWidget>
 #include <QDate>
-#include <QSet>
+#include <QMap>
 #include <QVector>
 
-class QLabel;
-class QPushButton;
-class QGridLayout;
+#include "models/Event.h"
 
-// CalendarWidget - самодельная сетка месяца (не встроенный QCalendarWidget).
-//
-// Почему не QCalendarWidget?
-// QCalendarWidget - готовый виджет "всё в одном", но плохо поддаётся
-// кастомизации: сложно перекрасить конкретные ячейки (пометить дни
-// с событиями) и сложно сделать свой заголовок под макет (стрелки + Today
-// в одну строку). Для учебного проекта проще сделать сетку из QPushButton
-// самим - логика "какой сегодня первый день недели" и "сколько дней
-// в месяце" станет наглядной, а не спрятанной внутри библиотечного класса.
+class QLabel;
+class QGridLayout;
+class MonthDayCell;
+
+// CalendarWidget - месячная сетка (Month View).
 //
 // Как устроена сетка:
-// - 7 колонок (Mon..Sun) x 6 строк = 42 ячейки. 6 строк с запасом,
-//   т.к. при некоторых комбинациях "первый день недели" + "число дней
-//   в месяце" месяц может занять 6 календарных строк (например, Пн 1 марта
-//   2027 + 31 день).
+// - 7 колонок (Mon..Sun или Sun..Sat, см. setFirstDayOfWeek) x 6 строк = 42
+//   ячейки. 6 строк с запасом, т.к. при некоторых комбинациях "первый день
+//   недели" + "число дней в месяце" месяц может занять 6 календарных строк.
 // - Первый день месяца - QDate(year, month, 1).
 // - QDate::dayOfWeek() для него (1=Пн..7=Вс) говорит, сколько "чужих"
 //   ячеек нужно оставить в начале сетки для хвоста предыдущего месяца.
@@ -31,8 +24,12 @@ class QGridLayout;
 //   firstOfMonth.addDays(dayNumber - 1), где dayNumber - номер дня
 //   относительно 1-го числа месяца (может быть <=0 для предыдущего
 //   месяца или больше daysInMonth() для следующего). QDate сам корректно
-//   переносит дату через границу месяца/года - отдельных ветвлений
-//   для "прошлый/следующий месяц" не требуется.
+//   переносит дату через границу месяца/года.
+//
+// Каждая ячейка - отдельный виджет MonthDayCell (см. ui/MonthDayCell.h),
+// который сам отрисовывает номер дня и мини-карточки событий; CalendarWidget
+// отвечает только за раскладку 42 ячеек в сетку и пересчёт того, какая дата
+// должна быть в какой ячейке.
 class CalendarWidget : public QWidget
 {
     Q_OBJECT
@@ -45,12 +42,16 @@ public:
 
     // Первая и последняя дата, видимые сейчас в сетке (42 ячейки, могут
     // относиться к соседним месяцам). Нужны, чтобы запросить у EventManager
-    // только даты в этом диапазоне - см. комментарий у EventManager::datesWithEvents.
+    // только события в этом диапазоне - см. EventManager::eventsInRange.
     QDate visibleRangeStart() const { return m_cellDates.isEmpty() ? QDate() : m_cellDates.first(); }
     QDate visibleRangeEnd() const { return m_cellDates.isEmpty() ? QDate() : m_cellDates.last(); }
 
-    // Обновляет набор дат, для которых показывается маркер "есть события".
-    void setDatesWithEvents(const QSet<QDate> &dates);
+    // Передаёт события для отрисовки внутри ячеек. Ключ - дата, значение -
+    // события этой даты (уже отсортированные по времени начала). Ячейки вне
+    // переданного диапазона просто не найдут в карте своей даты и покажутся
+    // без событий - вызывающий код должен передавать события хотя бы для
+    // всего видимого диапазона (visibleRangeStart()..visibleRangeEnd()).
+    void setEventsForVisibleRange(const QMap<QDate, QVector<Event>> &eventsByDate);
 
 public slots:
     void goToPreviousMonth();
@@ -71,21 +72,29 @@ signals:
     // видимый диапазон дат мог измениться.
     void visibleRangeChanged(const QDate &start, const QDate &end);
 
+    // Двойной клик по пустому месту в ячейке дня - запрос создать
+    // событие на эту дату.
+    void createEventRequested(const QDate &date);
+
+    // Двойной клик по мини-карточке события внутри ячейки - запрос
+    // открыть это событие на редактирование.
+    void editEventRequested(int eventId);
+
 private:
     void rebuildGrid();
     void updateHeaderLabel();
     void updateWeekDayLabels(); // текст меток Mon..Sun / Sun..Sat в зависимости от m_sundayFirst
-    void onDayButtonClicked(int cellIndex);
+    void applyEventsToVisibleCells(); // раздаёт m_eventsByDate по видимым ячейкам
 
     int m_year;
     int m_month; // 1-12
     QDate m_selectedDate;
-    QSet<QDate> m_datesWithEvents;
+    QMap<QDate, QVector<Event>> m_eventsByDate;
     bool m_sundayFirst = false; // false = неделя с понедельника
 
     QLabel *m_monthLabel = nullptr;
     QGridLayout *m_gridLayout = nullptr;
-    QVector<QLabel *> m_weekDayLabels;   // 7 меток дней недели, создаются один раз
-    QVector<QPushButton *> m_dayButtons; // 42 кнопки сетки, создаются один раз
-    QVector<QDate> m_cellDates;          // дата, соответствующая каждой кнопке
+    QVector<QLabel *> m_weekDayLabels;     // 7 меток дней недели, создаются один раз
+    QVector<MonthDayCell *> m_dayCells;    // 42 ячейки сетки, создаются один раз
+    QVector<QDate> m_cellDates;            // дата, соответствующая каждой ячейке
 };

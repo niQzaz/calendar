@@ -61,6 +61,13 @@ public:
     // (используется CalendarWidget, чтобы пометить такие дни в сетке месяца).
     QSet<QDate> datesWithEvents(const QDate &rangeStart, const QDate &rangeEnd) const;
 
+    // Все события (обычные и повторяющиеся) в диапазоне [rangeStart, rangeEnd],
+    // каждое с полем date, выставленным в конкретную дату вхождения -
+    // используется MonthView для отрисовки мини-карточек событий внутри ячеек,
+    // а в будущем и Week/Day View. Та же идея, что у eventsForDate(), только
+    // сразу на диапазон дат, а не на один день.
+    QVector<Event> eventsInRange(const QDate &rangeStart, const QDate &rangeEnd) const;
+
 private:
     // Загружает все события с recurrence_type != 'none' - их всегда немного
     // (это шаблоны, а не отдельные повторения), поэтому дальше с ними

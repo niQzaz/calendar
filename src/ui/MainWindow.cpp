@@ -18,6 +18,7 @@
 #include <QAction>
 #include <QFileDialog>
 #include <QMessageBox>
+#include <QMap>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -70,14 +71,18 @@ MainWindow::MainWindow(QWidget *parent)
     m_selectedDateLabel->setObjectName("selectedDateLabel");
 
     m_eventsList = new QListWidget(rightPanel);
+    m_eventsList->setObjectName("eventsList");
 
     auto *hintLabel = new QLabel("Double-click an event to edit it", rightPanel);
     hintLabel->setObjectName("hintLabel");
 
     m_addEventButton = new QPushButton("+ Add event", rightPanel);
+    m_addEventButton->setObjectName("panelButton");
     m_deleteEventButton = new QPushButton("Delete event", rightPanel);
+    m_deleteEventButton->setObjectName("panelButton");
     m_deleteEventButton->setEnabled(false);
     m_startPomodoroButton = new QPushButton("Start Pomodoro", rightPanel);
+    m_startPomodoroButton->setObjectName("panelButton");
     m_startPomodoroButton->setEnabled(false);
 
     rightLayout->addWidget(m_selectedDateLabel);
@@ -94,8 +99,16 @@ MainWindow::MainWindow(QWidget *parent)
     splitter->setStretchFactor(0, 2);
     splitter->setStretchFactor(1, 1);
     splitter->setStretchFactor(2, 1);
+    splitter->setHandleWidth(1);
 
-    setCentralWidget(splitter);
+    // Небольшие отступы вокруг всего контента вместо того, чтобы сплиттер
+    // упирался прямо в края окна - чуть более "продуманный" вид, чем голый
+    // central widget без полей.
+    auto *centralContainer = new QWidget(this);
+    auto *centralLayout = new QVBoxLayout(centralContainer);
+    centralLayout->setContentsMargins(12, 12, 12, 12);
+    centralLayout->addWidget(splitter);
+    setCentralWidget(centralContainer);
 
     connect(m_calendar, &CalendarWidget::dateSelected, this, &MainWindow::onDateSelected);
     connect(m_addEventButton, &QPushButton::clicked, this, &MainWindow::onAddEventClicked);
@@ -105,6 +118,8 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_startPomodoroButton, &QPushButton::clicked, this, &MainWindow::onStartPomodoroClicked);
     connect(m_pomodoro, &PomodoroWidget::pomodoroCompletedForEvent, this, &MainWindow::onPomodoroCompletedForEvent);
     connect(m_calendar, &CalendarWidget::visibleRangeChanged, this, &MainWindow::onVisibleRangeChanged);
+    connect(m_calendar, &CalendarWidget::createEventRequested, this, &MainWindow::onCreateEventRequested);
+    connect(m_calendar, &CalendarWidget::editEventRequested, this, &MainWindow::onEditEventRequested);
 
     // Инициализируем правую панель для дня, который CalendarWidget
     // выбрал по умолчанию (сегодня), и сразу подсвечиваем в сетке дни,
@@ -153,7 +168,16 @@ void MainWindow::refreshEventsList()
 
 void MainWindow::refreshCalendarMarkers()
 {
-    m_calendar->setDatesWithEvents(m_eventManager.datesWithEvents(m_visibleRangeStart, m_visibleRangeEnd));
+    if (!m_visibleRangeStart.isValid() || !m_visibleRangeEnd.isValid())
+        return;
+
+    const QVector<Event> events = m_eventManager.eventsInRange(m_visibleRangeStart, m_visibleRangeEnd);
+
+    QMap<QDate, QVector<Event>> eventsByDate;
+    for (const Event &event : events)
+        eventsByDate[event.date].append(event);
+
+    m_calendar->setEventsForVisibleRange(eventsByDate);
 }
 
 void MainWindow::onVisibleRangeChanged(const QDate &start, const QDate &end)
@@ -165,7 +189,12 @@ void MainWindow::onVisibleRangeChanged(const QDate &start, const QDate &end)
 
 void MainWindow::onAddEventClicked()
 {
-    EventDialog dialog(m_calendar->selectedDate(), this);
+    openNewEventDialog(m_calendar->selectedDate());
+}
+
+void MainWindow::openNewEventDialog(const QDate &defaultDate)
+{
+    EventDialog dialog(defaultDate, this);
     if (dialog.exec() != QDialog::Accepted)
         return;
 
@@ -183,8 +212,11 @@ void MainWindow::onEventSelectionChanged()
 
 void MainWindow::onEventDoubleClicked(QListWidgetItem *item)
 {
-    const int eventId = item->data(Qt::UserRole).toInt();
+    openEditEventDialog(item->data(Qt::UserRole).toInt());
+}
 
+void MainWindow::openEditEventDialog(int eventId)
+{
     Event existingEvent;
     if (!m_eventManager.eventById(eventId, existingEvent))
         return;
@@ -196,6 +228,16 @@ void MainWindow::onEventDoubleClicked(QListWidgetItem *item)
     m_eventManager.updateEvent(dialog.toEvent());
     refreshEventsList();
     refreshCalendarMarkers();
+}
+
+void MainWindow::onCreateEventRequested(const QDate &date)
+{
+    openNewEventDialog(date);
+}
+
+void MainWindow::onEditEventRequested(int eventId)
+{
+    openEditEventDialog(eventId);
 }
 
 void MainWindow::onStartPomodoroClicked()

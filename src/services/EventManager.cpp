@@ -303,6 +303,52 @@ QSet<QDate> EventManager::datesWithEvents(const QDate &rangeStart, const QDate &
     return dates;
 }
 
+QVector<Event> EventManager::eventsInRange(const QDate &rangeStart, const QDate &rangeEnd) const
+{
+    QVector<Event> result;
+
+    if (!rangeStart.isValid() || !rangeEnd.isValid() || rangeStart > rangeEnd)
+        return result;
+
+    // 1. Обычные события внутри диапазона - один SQL-запрос.
+    QSqlQuery query(QSqlDatabase::database(m_connectionName));
+    query.prepare(
+        "SELECT * FROM events WHERE recurrence_type = 'none' AND date BETWEEN :start AND :end"
+    );
+    query.bindValue(":start", rangeStart.toString(Qt::ISODate));
+    query.bindValue(":end", rangeEnd.toString(Qt::ISODate));
+
+    if (!query.exec()) {
+        qWarning() << "Failed to load events in range:" << query.lastError().text();
+        return result;
+    }
+
+    while (query.next())
+        result.append(eventFromQuery(query));
+
+    // 2. Повторяющиеся события - та же идея, что в datesWithEvents(): диапазон
+    // (обычно ~6 недель для сетки месяца) невелик, поэтому просто перебираем
+    // каждый день против каждого шаблона.
+    const QVector<Event> templates = allRecurringTemplates();
+    for (QDate day = rangeStart; day <= rangeEnd; day = day.addDays(1)) {
+        for (const Event &templateEvent : templates) {
+            if (eventOccursOnDate(templateEvent, day)) {
+                Event occurrence = templateEvent;
+                occurrence.date = day;
+                result.append(occurrence);
+            }
+        }
+    }
+
+    std::sort(result.begin(), result.end(), [](const Event &a, const Event &b) {
+        if (a.date != b.date)
+            return a.date < b.date;
+        return a.startTime < b.startTime;
+    });
+
+    return result;
+}
+
 QVector<Event> EventManager::allRecurringTemplates() const
 {
     QVector<Event> templates;

@@ -34,6 +34,8 @@ add_executable(QtCalendarApp
     src/ui/MainWindow.cpp
     src/ui/CalendarWidget.h
     src/ui/CalendarWidget.cpp
+    src/ui/MonthDayCell.h
+    src/ui/MonthDayCell.cpp
     src/ui/EventDialog.h
     src/ui/EventDialog.cpp
     src/ui/PomodoroWidget.h

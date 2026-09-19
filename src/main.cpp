@@ -27,27 +27,6 @@ void applyDarkTheme(QApplication &app)
     app.setPalette(palette);
 
     const QString qss = R"(
-        QPushButton#dayButton {
-            border: none;
-            border-radius: 6px;
-            background-color: #2d2d34;
-        }
-        QPushButton#dayButton:hover {
-            background-color: #3a3a44;
-        }
-        QPushButton#dayButton:checked {
-            background-color: #5e81f4;
-            font-weight: bold;
-        }
-        QPushButton#dayButton[otherMonth="true"] {
-            color: #666666;
-        }
-        QPushButton#dayButton[isToday="true"] {
-            border: 1px solid #5e81f4;
-        }
-        QPushButton#dayButton[hasEvents="true"] {
-            border-bottom: 3px solid #f4b45e;
-        }
         QLabel#monthLabel {
             font-size: 16px;
             font-weight: bold;
@@ -80,6 +59,57 @@ void applyDarkTheme(QApplication &app)
         QLabel#pomodoroCompletedLabel {
             color: #999999;
         }
+        QPushButton#navButton {
+            border: none;
+            border-radius: 6px;
+            background-color: #2d2d34;
+        }
+        QPushButton#navButton:hover {
+            background-color: #3a3a44;
+        }
+        QPushButton#todayButton {
+            border: 1px solid #5e81f4;
+            border-radius: 6px;
+            padding: 4px 12px;
+            color: #cdd6ff;
+        }
+        QPushButton#todayButton:hover {
+            background-color: rgba(94, 129, 244, 40);
+        }
+        QPushButton#panelButton {
+            border: none;
+            border-radius: 6px;
+            background-color: #2d2d34;
+            padding: 7px 10px;
+            text-align: left;
+        }
+        QPushButton#panelButton:hover {
+            background-color: #3a3a44;
+        }
+        QPushButton#panelButton:disabled {
+            color: #6a6a6f;
+        }
+        QListWidget#eventsList {
+            border: none;
+            border-radius: 8px;
+            background-color: #26262c;
+            padding: 4px;
+        }
+        QListWidget#eventsList::item {
+            border-radius: 6px;
+            padding: 6px 8px;
+            margin: 1px 0px;
+        }
+        QListWidget#eventsList::item:selected {
+            background-color: #3a3a44;
+            color: #ffffff;
+        }
+        QListWidget#eventsList::item:hover {
+            background-color: #2d2d34;
+        }
+        QSplitter::handle {
+            background-color: #38383f;
+        }
     )";
     app.setStyleSheet(qss);
 }
@@ -106,29 +136,6 @@ void applyLightTheme(QApplication &app)
     app.setPalette(palette);
 
     const QString qss = R"(
-        QPushButton#dayButton {
-            border: none;
-            border-radius: 6px;
-            background-color: #eaeaee;
-            color: #1a1a1a;
-        }
-        QPushButton#dayButton:hover {
-            background-color: #dcdce2;
-        }
-        QPushButton#dayButton:checked {
-            background-color: #4a6cf7;
-            color: white;
-            font-weight: bold;
-        }
-        QPushButton#dayButton[otherMonth="true"] {
-            color: #a0a0a5;
-        }
-        QPushButton#dayButton[isToday="true"] {
-            border: 1px solid #4a6cf7;
-        }
-        QPushButton#dayButton[hasEvents="true"] {
-            border-bottom: 3px solid #d98a1f;
-        }
         QLabel#monthLabel {
             font-size: 16px;
             font-weight: bold;
@@ -160,6 +167,57 @@ void applyLightTheme(QApplication &app)
         }
         QLabel#pomodoroCompletedLabel {
             color: #6b6b70;
+        }
+        QPushButton#navButton {
+            border: none;
+            border-radius: 6px;
+            background-color: #eaeaee;
+        }
+        QPushButton#navButton:hover {
+            background-color: #dcdce2;
+        }
+        QPushButton#todayButton {
+            border: 1px solid #4a6cf7;
+            border-radius: 6px;
+            padding: 4px 12px;
+            color: #2d47c9;
+        }
+        QPushButton#todayButton:hover {
+            background-color: rgba(74, 108, 247, 30);
+        }
+        QPushButton#panelButton {
+            border: none;
+            border-radius: 6px;
+            background-color: #eaeaee;
+            padding: 7px 10px;
+            text-align: left;
+        }
+        QPushButton#panelButton:hover {
+            background-color: #dcdce2;
+        }
+        QPushButton#panelButton:disabled {
+            color: #a3a3a8;
+        }
+        QListWidget#eventsList {
+            border: none;
+            border-radius: 8px;
+            background-color: #ffffff;
+            padding: 4px;
+        }
+        QListWidget#eventsList::item {
+            border-radius: 6px;
+            padding: 6px 8px;
+            margin: 1px 0px;
+        }
+        QListWidget#eventsList::item:selected {
+            background-color: #dfe4fe;
+            color: #1a1a1a;
+        }
+        QListWidget#eventsList::item:hover {
+            background-color: #f0f0f4;
+        }
+        QSplitter::handle {
+            background-color: #dcdce2;
         }
     )";
     app.setStyleSheet(qss);

@@ -1,11 +1,11 @@
 #include "CalendarWidget.h"
+#include "MonthDayCell.h"
 
 #include <QLabel>
 #include <QPushButton>
 #include <QGridLayout>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
-#include <QStyle>
 #include <QStringList>
 
 namespace {
@@ -36,6 +36,9 @@ CalendarWidget::CalendarWidget(QWidget *parent)
     auto *todayButton = new QPushButton("Today", this);
     prevButton->setFixedWidth(32);
     nextButton->setFixedWidth(32);
+    prevButton->setObjectName("navButton");
+    nextButton->setObjectName("navButton");
+    todayButton->setObjectName("todayButton");
 
     m_monthLabel = new QLabel(this);
     m_monthLabel->setAlignment(Qt::AlignCenter);
@@ -64,28 +67,27 @@ CalendarWidget::CalendarWidget(QWidget *parent)
     }
     rootLayout->addLayout(weekDaysLayout);
 
-    // --- Сетка дней: создаём 42 кнопки один раз, дальше только меняем их текст/стиль ---
+    // --- Сетка дней: создаём 42 ячейки один раз, дальше только обновляем их данные ---
     m_gridLayout = new QGridLayout();
     m_gridLayout->setSpacing(4);
     rootLayout->addLayout(m_gridLayout);
 
-    m_dayButtons.reserve(42);
+    m_dayCells.reserve(42);
     m_cellDates.resize(42);
 
     for (int i = 0; i < 42; ++i) {
-        auto *button = new QPushButton(this);
-        button->setCheckable(true);
-        button->setMinimumSize(36, 36);
-        button->setObjectName("dayButton");
+        auto *cell = new MonthDayCell(this);
+        m_gridLayout->addWidget(cell, i / 7, i % 7);
 
-        m_gridLayout->addWidget(button, i / 7, i % 7);
+        connect(cell, &MonthDayCell::clicked, this, &CalendarWidget::setSelectedDate);
+        connect(cell, &MonthDayCell::createEventRequested, this, [this](const QDate &date) {
+            setSelectedDate(date);
+            emit createEventRequested(date);
+        });
+        connect(cell, &MonthDayCell::editEventRequested, this, &CalendarWidget::editEventRequested);
 
-        connect(button, &QPushButton::clicked, this, [this, i]() { onDayButtonClicked(i); });
-
-        m_dayButtons.append(button);
+        m_dayCells.append(cell);
     }
-
-    rootLayout->addStretch();
 
     updateWeekDayLabels();
     rebuildGrid();
@@ -120,7 +122,7 @@ void CalendarWidget::rebuildGrid()
     const QDate today = QDate::currentDate();
 
     for (int i = 0; i < 42; ++i) {
-        QPushButton *button = m_dayButtons[i];
+        MonthDayCell *cell = m_dayCells[i];
         const int dayNumber = i - leadingEmptyCells + 1;
 
         // QDate сам корректно "переносит" дату через границу месяца:
@@ -130,26 +132,28 @@ void CalendarWidget::rebuildGrid()
         const bool belongsToCurrentMonth = (cellDate.month() == m_month && cellDate.year() == m_year);
 
         m_cellDates[i] = cellDate;
-        button->setText(QString::number(cellDate.day()));
-        button->setChecked(cellDate == m_selectedDate);
-
-        // Динамические свойства используются в QSS (main.cpp) для подсветки:
-        // "чужой" месяц, сегодняшний день, день с событиями.
-        button->setProperty("otherMonth", !belongsToCurrentMonth);
-        button->setProperty("isToday", cellDate == today);
-        button->setProperty("hasEvents", m_datesWithEvents.contains(cellDate));
-
-        // После смены свойств стиль нужно перепросчитать вручную -
-        // Qt не делает это автоматически для динамических свойств.
-        button->style()->unpolish(button);
-        button->style()->polish(button);
+        cell->setDate(cellDate);
+        cell->setOtherMonth(!belongsToCurrentMonth);
+        cell->setToday(cellDate == today);
+        cell->setSelected(cellDate == m_selectedDate);
     }
+
+    // Данные о событиях могли устареть относительно нового набора дат -
+    // MainWindow пришлёт актуальные по сигналу visibleRangeChanged чуть
+    // позже, но применяем то, что уже есть, чтобы не мигать пустой сеткой.
+    applyEventsToVisibleCells();
 }
 
-void CalendarWidget::setDatesWithEvents(const QSet<QDate> &dates)
+void CalendarWidget::applyEventsToVisibleCells()
 {
-    m_datesWithEvents = dates;
-    rebuildGrid();
+    for (int i = 0; i < m_dayCells.size(); ++i)
+        m_dayCells[i]->setEvents(m_eventsByDate.value(m_cellDates[i]));
+}
+
+void CalendarWidget::setEventsForVisibleRange(const QMap<QDate, QVector<Event>> &eventsByDate)
+{
+    m_eventsByDate = eventsByDate;
+    applyEventsToVisibleCells();
 }
 
 void CalendarWidget::setFirstDayOfWeek(bool sundayFirst)
@@ -198,9 +202,4 @@ void CalendarWidget::setSelectedDate(const QDate &date)
     rebuildGrid();
     emit visibleRangeChanged(m_cellDates.first(), m_cellDates.last());
     emit dateSelected(m_selectedDate);
-}
-
-void CalendarWidget::onDayButtonClicked(int cellIndex)
-{
-    setSelectedDate(m_cellDates[cellIndex]);
 }

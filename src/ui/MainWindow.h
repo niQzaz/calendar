@@ -40,11 +40,19 @@ private slots:
     void onImportCsvClicked();
     void onVisibleRangeChanged(const QDate &start, const QDate &end);
     void onSettingsClicked();
+    void onCreateEventRequested(const QDate &date);   // двойной клик по пустому месту ячейки
+    void onEditEventRequested(int eventId);            // двойной клик по мини-карточке события
 
 private:
     void refreshEventsList();
     void refreshCalendarMarkers();
     void applyShortcuts(); // выставляет QKeySequence каждому QAction из AppSettings
+
+    // Общая логика открытия EventDialog - используется и кнопкой/списком
+    // (как раньше), и новыми сигналами от ячеек Month View (двойной клик
+    // по пустому месту / по мини-карточке события), чтобы не дублировать код.
+    void openNewEventDialog(const QDate &defaultDate);
+    void openEditEventDialog(int eventId);
 
     CalendarWidget *m_calendar = nullptr;
     QListWidget *m_eventsList = nullptr;
