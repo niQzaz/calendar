@@ -24,6 +24,17 @@ EventDialog::EventDialog(const QDate &defaultDate, QWidget *parent)
     m_endTimeEdit->setTime(QTime(10, 0));
 }
 
+EventDialog::EventDialog(const QDate &defaultDate, const QTime &defaultStartTime, QWidget *parent)
+    : QDialog(parent)
+{
+    setWindowTitle("New event");
+    buildForm();
+
+    m_dateEdit->setDate(defaultDate);
+    m_startTimeEdit->setTime(defaultStartTime);
+    m_endTimeEdit->setTime(defaultStartTime.addSecs(3600));
+}
+
 EventDialog::EventDialog(const Event &eventToEdit, QWidget *parent)
     : QDialog(parent)
 {

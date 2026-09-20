@@ -128,6 +128,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_pomodoro, &PomodoroWidget::pomodoroCompletedForEvent, this, &MainWindow::onPomodoroCompletedForEvent);
     connect(m_calendarView, &CalendarView::visibleRangeChanged, this, &MainWindow::onVisibleRangeChanged);
     connect(m_calendarView, &CalendarView::createEventRequested, this, &MainWindow::onCreateEventRequested);
+    connect(m_calendarView, &CalendarView::createEventRequestedWithTime, this, &MainWindow::onCreateEventRequestedWithTime);
     connect(m_calendarView, &CalendarView::editEventRequested, this, &MainWindow::onEditEventRequested);
     connect(m_calendarView, &CalendarView::viewModeChanged, this, &MainWindow::onCalendarViewModeChanged);
 
@@ -200,10 +201,10 @@ void MainWindow::onVisibleRangeChanged(const QDate &start, const QDate &end)
 void MainWindow::onCalendarViewModeChanged(CalendarViewMode mode)
 {
     // Панель со списком событий имеет смысл только в Month View - в Week/Day
-    // события показываются прямо внутри временной сетки (когда она появится
-    // в Phase E/F), отдельный список там был бы дублированием той же
-    // информации. Pomodoro-панель пока не трогаем - её возможный переезд
-    // в шапку окна обсуждали отдельно и это не входит в Phase D.
+    // события показываются прямо внутри временной сетки, отдельный список
+    // там дублировал бы ту же информацию (Day пока заглушка - Phase F).
+    // Pomodoro-панель пока не трогаем - её возможный переезд в шапку окна
+    // обсуждали отдельно, в текущие фазы это не входит.
     m_rightPanel->setVisible(mode == CalendarViewMode::Month);
 }
 
@@ -215,6 +216,17 @@ void MainWindow::onAddEventClicked()
 void MainWindow::openNewEventDialog(const QDate &defaultDate)
 {
     EventDialog dialog(defaultDate, this);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+
+    m_eventManager.addEvent(dialog.toEvent());
+    refreshEventsList();
+    refreshCalendarMarkers();
+}
+
+void MainWindow::openNewEventDialog(const QDate &defaultDate, const QTime &defaultStartTime)
+{
+    EventDialog dialog(defaultDate, defaultStartTime, this);
     if (dialog.exec() != QDialog::Accepted)
         return;
 
@@ -253,6 +265,11 @@ void MainWindow::openEditEventDialog(int eventId)
 void MainWindow::onCreateEventRequested(const QDate &date)
 {
     openNewEventDialog(date);
+}
+
+void MainWindow::onCreateEventRequestedWithTime(const QDate &date, const QTime &time)
+{
+    openNewEventDialog(date, time);
 }
 
 void MainWindow::onEditEventRequested(int eventId)

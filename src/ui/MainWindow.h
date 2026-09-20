@@ -2,6 +2,7 @@
 
 #include <QMainWindow>
 #include <QDate>
+#include <QTime>
 
 #include "services/EventManager.h"
 #include "services/AppSettings.h"
@@ -42,7 +43,8 @@ private slots:
     void onImportCsvClicked();
     void onVisibleRangeChanged(const QDate &start, const QDate &end);
     void onSettingsClicked();
-    void onCreateEventRequested(const QDate &date);   // двойной клик по пустому месту ячейки
+    void onCreateEventRequested(const QDate &date);   // двойной клик по пустому месту ячейки (Month)
+    void onCreateEventRequestedWithTime(const QDate &date, const QTime &time); // клик по сетке (Week/Day)
     void onEditEventRequested(int eventId);            // двойной клик по мини-карточке события
     void onCalendarViewModeChanged(CalendarViewMode mode);
 
@@ -52,9 +54,11 @@ private:
     void applyShortcuts(); // выставляет QKeySequence каждому QAction из AppSettings
 
     // Общая логика открытия EventDialog - используется и кнопкой/списком
-    // (как раньше), и новыми сигналами от ячеек Month View (двойной клик
-    // по пустому месту / по мини-карточке события), чтобы не дублировать код.
+    // (как раньше), и новыми сигналами от Month/Week/Day (двойной клик
+    // по пустому месту / по мини-карточке события / клик по сетке),
+    // чтобы не дублировать код.
     void openNewEventDialog(const QDate &defaultDate);
+    void openNewEventDialog(const QDate &defaultDate, const QTime &defaultStartTime); // Week/Day: время уже известно
     void openEditEventDialog(int eventId);
 
     CalendarView *m_calendarView = nullptr;

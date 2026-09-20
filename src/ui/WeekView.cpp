@@ -1,49 +1,78 @@
 #include "WeekView.h"
+#include "TimeGridView.h"
 
-#include <QLabel>
+#include <QScrollArea>
+#include <QScrollBar>
 #include <QVBoxLayout>
+#include <QTimer>
 
 namespace {
-QDate startOfWeek(const QDate &date)
+QDate startOfWeek(const QDate &date, bool sundayFirst)
 {
-    // Понедельник этой недели. Настройка "первый день недели" (Этап 8)
-    // на заголовок периода не влияет - в Phase E, когда появится сама
-    // сетка недели, она будет учитываться отдельно, как в MonthView.
-    return date.addDays(-(date.dayOfWeek() - 1));
+    const int isoWeekday = date.dayOfWeek(); // 1 = Пн ... 7 = Вс
+    const int offset = sundayFirst ? (isoWeekday % 7) : (isoWeekday - 1);
+    return date.addDays(-offset);
 }
 }
 
 WeekView::WeekView(QWidget *parent)
     : QWidget(parent)
-    , m_weekStart(startOfWeek(QDate::currentDate()))
+    , m_weekStart(startOfWeek(QDate::currentDate(), false))
 {
-    m_placeholderLabel = new QLabel(this);
-    m_placeholderLabel->setAlignment(Qt::AlignCenter);
-    m_placeholderLabel->setWordWrap(true);
-    m_placeholderLabel->setObjectName("hintLabel");
+    m_grid = new TimeGridView(this);
+
+    m_scrollArea = new QScrollArea(this);
+    m_scrollArea->setWidget(m_grid);
+    m_scrollArea->setWidgetResizable(true);
+    m_scrollArea->setFrameShape(QFrame::NoFrame);
+    m_scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
 
     auto *layout = new QVBoxLayout(this);
-    layout->addWidget(m_placeholderLabel);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->addWidget(m_scrollArea);
 
-    updatePlaceholderText();
+    connect(m_grid, &TimeGridView::createEventRequested, this, &WeekView::createEventRequested);
+    connect(m_grid, &TimeGridView::editEventRequested, this, &WeekView::editEventRequested);
+
+    rebuildColumnDates();
+
+    // Открываем неделю сразу прокрученной к разумному рабочему времени
+    // (7:00), а не к полуночи - большинству событий там всё равно не бывает.
+    // QTimer::singleShot(0, ...) - стандартный приём: на момент конструктора
+    // виджет ещё не уложен окончательно (geometry могла не устаканиться),
+    // поэтому откладываем скролл на "после того, как layout закончится".
+    QTimer::singleShot(0, this, [this]() {
+        m_scrollArea->verticalScrollBar()->setValue(m_grid->yForTime(QTime(7, 0)));
+    });
+}
+
+void WeekView::rebuildColumnDates()
+{
+    QVector<QDate> dates;
+    dates.reserve(7);
+    for (int i = 0; i < 7; ++i)
+        dates.append(m_weekStart.addDays(i));
+
+    m_grid->setColumnDates(dates);
+    emit visibleRangeChanged(m_weekStart, m_weekStart.addDays(6));
 }
 
 void WeekView::goToPrevious()
 {
     m_weekStart = m_weekStart.addDays(-7);
-    updatePlaceholderText();
+    rebuildColumnDates();
 }
 
 void WeekView::goToNext()
 {
     m_weekStart = m_weekStart.addDays(7);
-    updatePlaceholderText();
+    rebuildColumnDates();
 }
 
 void WeekView::goToToday()
 {
-    m_weekStart = startOfWeek(QDate::currentDate());
-    updatePlaceholderText();
+    m_weekStart = startOfWeek(QDate::currentDate(), m_sundayFirst);
+    rebuildColumnDates();
 }
 
 QString WeekView::headerTitle() const
@@ -60,9 +89,25 @@ QString WeekView::headerTitle() const
     return QString("%1 - %2").arg(m_weekStart.toString("d MMMM")).arg(weekEnd.toString("d MMMM yyyy"));
 }
 
-void WeekView::updatePlaceholderText()
+void WeekView::setFirstDayOfWeek(bool sundayFirst)
 {
-    m_placeholderLabel->setText(
-        QString("Week view is coming in Phase E.\n\nCurrently showing: %1").arg(headerTitle())
-    );
+    if (m_sundayFirst == sundayFirst)
+        return;
+
+    m_sundayFirst = sundayFirst;
+    // Пересчитываем начало ТОЙ ЖЕ недели под новый порядок дней -
+    // не "прыгаем" на другую неделю, просто меняем, с какого дня она
+    // теперь официально начинается.
+    m_weekStart = startOfWeek(m_weekStart, sundayFirst);
+    rebuildColumnDates();
+}
+
+void WeekView::setEventsForVisibleRange(const QMap<QDate, QVector<Event>> &eventsByDate)
+{
+    m_grid->setEventsForColumns(eventsByDate);
+}
+
+void WeekView::setTheme(const Theme &theme)
+{
+    m_grid->setTheme(theme);
 }

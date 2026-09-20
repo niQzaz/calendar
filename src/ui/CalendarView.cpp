@@ -73,13 +73,21 @@ CalendarView::CalendarView(QWidget *parent)
     rootLayout->addWidget(m_stack, 1);
 
     // MonthView - пока единственное представление, которое реально работает
-    // с событиями/датами, поэтому его сигналы ретранслируются наружу
-    // под теми же именами (см. комментарий в заголовке).
+    // с событиями/датами полностью (панель справа и т.п.), поэтому его
+    // сигналы ретранслируются наружу под теми же именами.
     connect(m_monthView, &MonthView::dateSelected, this, &CalendarView::dateSelected);
     connect(m_monthView, &MonthView::visibleRangeChanged, this, &CalendarView::visibleRangeChanged);
     connect(m_monthView, &MonthView::visibleRangeChanged, this, &CalendarView::updateHeaderTitle);
     connect(m_monthView, &MonthView::createEventRequested, this, &CalendarView::createEventRequested);
     connect(m_monthView, &MonthView::editEventRequested, this, &CalendarView::editEventRequested);
+
+    // WeekView (Phase E) - клик по сетке несёт ещё и время, поэтому его
+    // createEventRequested ретранслируется как createEventRequestedWithTime,
+    // а не как обычный createEventRequested.
+    connect(m_weekView, &WeekView::visibleRangeChanged, this, &CalendarView::visibleRangeChanged);
+    connect(m_weekView, &WeekView::visibleRangeChanged, this, &CalendarView::updateHeaderTitle);
+    connect(m_weekView, &WeekView::createEventRequested, this, &CalendarView::createEventRequestedWithTime);
+    connect(m_weekView, &WeekView::editEventRequested, this, &CalendarView::editEventRequested);
 
     setViewMode(CalendarViewMode::Month);
 }
@@ -106,7 +114,27 @@ void CalendarView::setViewMode(CalendarViewMode mode)
 
     updateSwitcherButtons();
     updateHeaderTitle();
+    emitCurrentRange();
     emit viewModeChanged(mode);
+}
+
+void CalendarView::emitCurrentRange()
+{
+    // При переключении представления (а не навигации внутри него) само
+    // представление никакого сигнала не шлёт - нужно попросить у него
+    // актуальный диапазон и сообщить наружу явно, иначе MainWindow не
+    // узнает, что нужно подгрузить события для новых дат.
+    switch (m_viewMode) {
+    case CalendarViewMode::Month:
+        emit visibleRangeChanged(m_monthView->visibleRangeStart(), m_monthView->visibleRangeEnd());
+        break;
+    case CalendarViewMode::Week:
+        emit visibleRangeChanged(m_weekView->visibleRangeStart(), m_weekView->visibleRangeEnd());
+        break;
+    case CalendarViewMode::Day:
+        // DayView - пока заглушка (Phase F), диапазон событий ему не нужен.
+        break;
+    }
 }
 
 void CalendarView::updateSwitcherButtons()
@@ -160,17 +188,33 @@ QDate CalendarView::monthVisibleRangeEnd() const
 
 void CalendarView::setEventsForVisibleRange(const QMap<QDate, QVector<Event>> &eventsByDate)
 {
-    m_monthView->setEventsForVisibleRange(eventsByDate);
+    // Данные относятся к диапазону ИМЕННО активного представления (MainWindow
+    // запрашивает их в ответ на visibleRangeChanged, который всегда несёт
+    // диапазон текущего режима) - поэтому раздаём только активному, а не
+    // обоим сразу: иначе, например, узкий недельный диапазон "затёр" бы
+    // месячную сетку почти пустой на короткое время между переключениями.
+    switch (m_viewMode) {
+    case CalendarViewMode::Month:
+        m_monthView->setEventsForVisibleRange(eventsByDate);
+        break;
+    case CalendarViewMode::Week:
+        m_weekView->setEventsForVisibleRange(eventsByDate);
+        break;
+    case CalendarViewMode::Day:
+        break; // DayView - пока заглушка (Phase F)
+    }
 }
 
 void CalendarView::setTheme(const Theme &theme)
 {
     m_monthView->setTheme(theme);
+    m_weekView->setTheme(theme);
 }
 
 void CalendarView::setFirstDayOfWeek(bool sundayFirst)
 {
     m_monthView->setFirstDayOfWeek(sundayFirst);
+    m_weekView->setFirstDayOfWeek(sundayFirst);
 }
 
 void CalendarView::setSelectedDate(const QDate &date)

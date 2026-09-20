@@ -26,6 +26,12 @@ public:
     // Режим "новое событие". defaultDate обычно - день, выбранный в календаре.
     explicit EventDialog(const QDate &defaultDate, QWidget *parent = nullptr);
 
+    // Режим "новое событие из клика по временной сетке" (Week/Day View,
+    // Phase E) - в отличие от конструктора выше, начальное время берётся
+    // из места клика (уже округлённое до 15 минут), а не фиксированное 9:00.
+    // Окончание по умолчанию - через час после начала.
+    explicit EventDialog(const QDate &defaultDate, const QTime &defaultStartTime, QWidget *parent = nullptr);
+
     // Режим "редактирование" - поля формы предзаполняются значениями eventToEdit.
     explicit EventDialog(const Event &eventToEdit, QWidget *parent = nullptr);
 

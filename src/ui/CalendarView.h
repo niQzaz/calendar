@@ -2,6 +2,7 @@
 
 #include <QWidget>
 #include <QDate>
+#include <QTime>
 #include <QMap>
 #include <QVector>
 
@@ -37,9 +38,9 @@ enum class CalendarViewMode
 // CalendarView не знает подробностей устройства Month/Week/Day - для
 // навигации и заголовка все три представления реализуют общий интерфейс
 // ICalendarPage (см. ui/ICalendarPage.h). Методы вроде setEventsForVisibleRange()
-// ниже - исключение: пока полноценно работает только Month View, поэтому
-// такие методы пока просто "пробрасываются" в MonthView напрямую;
-// по мере реализации Week/Day (Phase E/F) список будет расти симметрично.
+// ниже - исключение: они "пробрасываются" в то представление, которое
+// сейчас активно (Month или Week - у обоих есть события; DayView пока
+// заглушка, будет добавлен в Phase F).
 class CalendarView : public QWidget
 {
     Q_OBJECT
@@ -50,7 +51,7 @@ public:
     CalendarViewMode viewMode() const { return m_viewMode; }
     void setViewMode(CalendarViewMode mode);
 
-    // --- Проброс к MonthView ---
+    // --- Проброс к активному представлению (Month/Week) ---
     QDate selectedDate() const;
     QDate monthVisibleRangeStart() const;
     QDate monthVisibleRangeEnd() const;
@@ -63,14 +64,14 @@ public:
 signals:
     void viewModeChanged(CalendarViewMode mode);
 
-    // Эти три сигнала пока целиком приходят от MonthView (единственного
-    // полнофункционального представления) - CalendarView их просто
-    // ретранслирует под тем же именем, чтобы MainWindow не знал про
-    // внутреннее устройство контейнера.
-    void dateSelected(const QDate &date);
-    void visibleRangeChanged(const QDate &start, const QDate &end);
-    void createEventRequested(const QDate &date);
-    void editEventRequested(int eventId);
+    // Эти сигналы пока приходят либо от MonthView, либо от WeekView -
+    // CalendarView их просто ретранслирует под общим именем, чтобы
+    // MainWindow не знал про внутреннее устройство контейнера.
+    void dateSelected(const QDate &date);                              // только Month
+    void visibleRangeChanged(const QDate &start, const QDate &end);    // любое представление
+    void createEventRequested(const QDate &date);                       // Month: двойной клик по пустой ячейке
+    void createEventRequestedWithTime(const QDate &date, const QTime &time); // Week/Day: клик по пустому месту сетки
+    void editEventRequested(int eventId);                               // любое представление
 
 private slots:
     void onPreviousClicked();
@@ -80,6 +81,7 @@ private slots:
 
 private:
     void updateSwitcherButtons();
+    void emitCurrentRange(); // сообщает актуальный диапазон активного представления
     ICalendarPage *currentPage() const;
 
     CalendarViewMode m_viewMode = CalendarViewMode::Month;
