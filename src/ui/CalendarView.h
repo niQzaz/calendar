@@ -39,8 +39,7 @@ enum class CalendarViewMode
 // навигации и заголовка все три представления реализуют общий интерфейс
 // ICalendarPage (см. ui/ICalendarPage.h). Методы вроде setEventsForVisibleRange()
 // ниже - исключение: они "пробрасываются" в то представление, которое
-// сейчас активно (Month или Week - у обоих есть события; DayView пока
-// заглушка, будет добавлен в Phase F).
+// сейчас активно.
 class CalendarView : public QWidget
 {
     Q_OBJECT

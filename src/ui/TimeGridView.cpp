@@ -231,9 +231,9 @@ void TimeGridView::paintEvents(QPainter &painter, const QRect &gridRect)
 
     for (int col = 0; col < m_columnDates.size() && col < m_eventsByColumn.size(); ++col) {
         const QRect colRect = columnRect(col, gridRect);
-        const QVector<EventLayoutSlot> slots = layoutEventsForDay(m_eventsByColumn[col]);
+        const QVector<EventLayoutSlot> eventSlots = layoutEventsForDay(m_eventsByColumn[col]);
 
-        for (const EventLayoutSlot &slot : slots) {
+        for (const EventLayoutSlot &slot : eventSlots) {
             const int y1 = timeToY(slot.event.startTime);
             // Минимальная высота 18px - иначе очень короткое событие
             // (например, 15 минут при маленьком зуме) стало бы нечитаемым.

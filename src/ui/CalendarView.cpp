@@ -89,6 +89,13 @@ CalendarView::CalendarView(QWidget *parent)
     connect(m_weekView, &WeekView::createEventRequested, this, &CalendarView::createEventRequestedWithTime);
     connect(m_weekView, &WeekView::editEventRequested, this, &CalendarView::editEventRequested);
 
+    // DayView (Phase F) - переиспользует тот же TimeGridView, что и WeekView,
+    // поэтому сигналы того же вида и подключаются точно так же.
+    connect(m_dayView, &DayView::visibleRangeChanged, this, &CalendarView::visibleRangeChanged);
+    connect(m_dayView, &DayView::visibleRangeChanged, this, &CalendarView::updateHeaderTitle);
+    connect(m_dayView, &DayView::createEventRequested, this, &CalendarView::createEventRequestedWithTime);
+    connect(m_dayView, &DayView::editEventRequested, this, &CalendarView::editEventRequested);
+
     setViewMode(CalendarViewMode::Month);
 }
 
@@ -132,7 +139,7 @@ void CalendarView::emitCurrentRange()
         emit visibleRangeChanged(m_weekView->visibleRangeStart(), m_weekView->visibleRangeEnd());
         break;
     case CalendarViewMode::Day:
-        // DayView - пока заглушка (Phase F), диапазон событий ему не нужен.
+        emit visibleRangeChanged(m_dayView->currentDate(), m_dayView->currentDate());
         break;
     }
 }
@@ -201,7 +208,8 @@ void CalendarView::setEventsForVisibleRange(const QMap<QDate, QVector<Event>> &e
         m_weekView->setEventsForVisibleRange(eventsByDate);
         break;
     case CalendarViewMode::Day:
-        break; // DayView - пока заглушка (Phase F)
+        m_dayView->setEventsForVisibleRange(eventsByDate);
+        break;
     }
 }
 
@@ -209,6 +217,7 @@ void CalendarView::setTheme(const Theme &theme)
 {
     m_monthView->setTheme(theme);
     m_weekView->setTheme(theme);
+    m_dayView->setTheme(theme);
 }
 
 void CalendarView::setFirstDayOfWeek(bool sundayFirst)

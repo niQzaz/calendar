@@ -11,6 +11,85 @@ const char *kTimeFormat = "HH:mm";
 constexpr int kExpectedColumnCount = 5;
 }
 
+QVector<QStringList> CsvImporter::parseCsvContent(const QString &content)
+{
+    QVector<QStringList> rows;
+    QStringList currentRow;
+    QString currentField;
+    bool inQuotes = false;
+
+    const int n = content.size();
+    int i = 0;
+
+    while (i < n) {
+        const QChar ch = content.at(i);
+
+        if (inQuotes) {
+            if (ch == QLatin1Char('"')) {
+                if (i + 1 < n && content.at(i + 1) == QLatin1Char('"')) {
+                    // Экранированная кавычка внутри поля: "" -> одна буквальная кавычка.
+                    currentField.append(QLatin1Char('"'));
+                    i += 2;
+                    continue;
+                }
+                inQuotes = false; // закрывающая кавычка
+                ++i;
+                continue;
+            }
+            // Внутри кавычек буквальны любые символы, включая запятые и переводы строк.
+            currentField.append(ch);
+            ++i;
+            continue;
+        }
+
+        if (ch == QLatin1Char('"')) {
+            inQuotes = true;
+            ++i;
+            continue;
+        }
+
+        if (ch == QLatin1Char(',')) {
+            currentRow.append(currentField);
+            currentField.clear();
+            ++i;
+            continue;
+        }
+
+        if (ch == QLatin1Char('\r')) {
+            // \r\n считаем одним разделителем записи; одиночный \r (старый
+            // Mac-стиль переноса строк) - тоже разделителем.
+            if (i + 1 < n && content.at(i + 1) == QLatin1Char('\n'))
+                ++i;
+            currentRow.append(currentField);
+            currentField.clear();
+            rows.append(currentRow);
+            currentRow.clear();
+            ++i;
+            continue;
+        }
+
+        if (ch == QLatin1Char('\n')) {
+            currentRow.append(currentField);
+            currentField.clear();
+            rows.append(currentRow);
+            currentRow.clear();
+            ++i;
+            continue;
+        }
+
+        currentField.append(ch);
+        ++i;
+    }
+
+    // Последняя запись, если файл не заканчивается переводом строки.
+    if (!currentField.isEmpty() || !currentRow.isEmpty()) {
+        currentRow.append(currentField);
+        rows.append(currentRow);
+    }
+
+    return rows;
+}
+
 CsvImportResult CsvImporter::importFromFile(const QString &filePath)
 {
     CsvImportResult result;
@@ -22,20 +101,30 @@ CsvImportResult CsvImporter::importFromFile(const QString &filePath)
     }
 
     QTextStream stream(&file);
+    QString content = stream.readAll();
+
+    // Снимаем UTF-8 BOM (U+FEFF), если он есть в начале файла - некоторые
+    // приложения (например, Excel) добавляют его при экспорте в UTF-8,
+    // и без снятия он "прилип" бы к первому полю заголовка.
+    if (!content.isEmpty() && content.at(0) == QChar(0xFEFF))
+        content.remove(0, 1);
+
+    const QVector<QStringList> rows = parseCsvContent(content);
 
     bool headerSkipped = false;
-    int lineNumber = 0;
+    int recordNumber = 0;
 
-    while (!stream.atEnd()) {
-        const QString rawLine = stream.readLine();
-        ++lineNumber;
+    for (const QStringList &fields : rows) {
+        ++recordNumber;
 
-        const QString line = rawLine.trimmed();
-        if (line.isEmpty())
-            continue; // пустые строки пропускаем молча - это не ошибка
+        // Полностью пустая запись (одно пустое поле - т.е. просто пустая
+        // строка в файле) пропускается молча, это не ошибка.
+        const bool isBlankRow = (fields.size() == 1 && fields.first().trimmed().isEmpty());
+        if (isBlankRow)
+            continue;
 
         if (!headerSkipped) {
-            // Первая непустая строка - заголовок, не разбираем её как данные.
+            // Первая непустая запись - заголовок, не разбираем её как данные.
             headerSkipped = true;
             continue;
         }
@@ -44,7 +133,7 @@ CsvImportResult CsvImporter::importFromFile(const QString &filePath)
 
         Event event;
         QString error;
-        if (parseRow(line, lineNumber, event, error))
+        if (parseRow(fields, recordNumber, event, error))
             result.validEvents.append(event);
         else
             result.errors.append(error);
@@ -53,13 +142,11 @@ CsvImportResult CsvImporter::importFromFile(const QString &filePath)
     return result;
 }
 
-bool CsvImporter::parseRow(const QString &line, int lineNumber, Event &outEvent, QString &outError)
+bool CsvImporter::parseRow(const QStringList &fields, int recordNumber, Event &outEvent, QString &outError)
 {
-    const QStringList fields = line.split(',');
-
     if (fields.size() != kExpectedColumnCount) {
         outError = QString("Строка %1: ожидалось %2 столбцов, найдено %3")
-            .arg(lineNumber)
+            .arg(recordNumber)
             .arg(kExpectedColumnCount)
             .arg(fields.size());
         return false;
@@ -74,7 +161,7 @@ bool CsvImporter::parseRow(const QString &line, int lineNumber, Event &outEvent,
     const QDate date = QDate::fromString(dateStr, kDateFormat);
     if (!date.isValid()) {
         outError = QString("Строка %1: некорректная дата \"%2\" (ожидается dd.MM.yyyy)")
-            .arg(lineNumber)
+            .arg(recordNumber)
             .arg(dateStr);
         return false;
     }
@@ -82,7 +169,7 @@ bool CsvImporter::parseRow(const QString &line, int lineNumber, Event &outEvent,
     const QTime startTime = QTime::fromString(startStr, kTimeFormat);
     if (!startTime.isValid()) {
         outError = QString("Строка %1: некорректное время начала \"%2\" (ожидается HH:mm)")
-            .arg(lineNumber)
+            .arg(recordNumber)
             .arg(startStr);
         return false;
     }
@@ -90,18 +177,18 @@ bool CsvImporter::parseRow(const QString &line, int lineNumber, Event &outEvent,
     const QTime endTime = QTime::fromString(endStr, kTimeFormat);
     if (!endTime.isValid()) {
         outError = QString("Строка %1: некорректное время окончания \"%2\" (ожидается HH:mm)")
-            .arg(lineNumber)
+            .arg(recordNumber)
             .arg(endStr);
         return false;
     }
 
     if (startTime >= endTime) {
-        outError = QString("Строка %1: время окончания раньше (или равно) времени начала").arg(lineNumber);
+        outError = QString("Строка %1: время окончания раньше (или равно) времени начала").arg(recordNumber);
         return false;
     }
 
     if (subject.isEmpty()) {
-        outError = QString("Строка %1: не указано название события").arg(lineNumber);
+        outError = QString("Строка %1: не указано название события").arg(recordNumber);
         return false;
     }
 

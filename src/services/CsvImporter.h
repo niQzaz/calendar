@@ -37,7 +37,20 @@ public:
     static CsvImportResult importFromFile(const QString &filePath);
 
 private:
-    // Разбирает одну строку данных. true и outEvent заполнен, если строка
-    // корректна; иначе false и текст ошибки в outError.
-    static bool parseRow(const QString &line, int lineNumber, Event &outEvent, QString &outError);
+    // Разбирает весь текст файла на записи (строки) и поля с учётом
+    // CSV-правил про кавычки:
+    //  - поле в двойных кавычках может содержать запятые и переводы строк;
+    //  - "" внутри такого поля - это экранированная одна кавычка;
+    //  - вне кавычек запятая - разделитель полей, перевод строки - разделитель записей.
+    // Работает по всему тексту сразу (а не построчно), потому что запись
+    // с кавычками может занимать больше одной физической строки файла.
+    static QVector<QStringList> parseCsvContent(const QString &content);
+
+    // Разбирает одну уже готовую запись (список полей) в Event. true и
+    // outEvent заполнен, если запись корректна; иначе false и текст ошибки
+    // в outError. recordNumber - порядковый номер записи (считая заголовок
+    // первой) - в обычном файле без переносов строк внутри кавычек он
+    // совпадает с номером физической строки, поэтому в сообщениях об
+    // ошибках по-прежнему называется "строка".
+    static bool parseRow(const QStringList &fields, int recordNumber, Event &outEvent, QString &outError);
 };

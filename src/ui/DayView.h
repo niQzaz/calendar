@@ -2,16 +2,22 @@
 
 #include <QWidget>
 #include <QDate>
+#include <QMap>
+#include <QVector>
 
 #include "ICalendarPage.h"
+#include "models/Event.h"
+#include "services/Theme.h"
 
-class QLabel;
+class QScrollArea;
+class TimeGridView;
 
-// Заготовка Day View (Phase D) - см. подробный комментарий в WeekView.h,
-// та же идея, только период - один день, а не неделя. Полноценная
-// реализация (Phase F) переиспользует общую логику с WeekView, а не
-// дублирует её - но это будет видно только когда появится сама
-// временная сетка.
+// Day View (Phase F) - временная сетка на один день.
+//
+// Переиспользует тот же TimeGridView, что и WeekView (Phase E) - просто
+// с одной колонкой вместо семи. Вся отрисовка/зум/клики/создание/выбор
+// событий уже реализованы там один раз - здесь только навигация по дням
+// (а не неделям) и заголовок вида "Wednesday, 16 September 2026".
 class DayView : public QWidget, public ICalendarPage
 {
     Q_OBJECT
@@ -25,9 +31,25 @@ public:
     void goToToday() override;
     QString headerTitle() const override;
 
+    void setEventsForVisibleRange(const QMap<QDate, QVector<Event>> &eventsByDate);
+    void setTheme(const Theme &theme);
+
+    QDate currentDate() const { return m_date; }
+
+signals:
+    void createEventRequested(const QDate &date, const QTime &time);
+    void editEventRequested(int eventId);
+
+    // Для Day View start == end == currentDate() - сигнал всё равно нужен,
+    // чтобы MainWindow знал, когда подгружать события заново (навигация
+    // по дням меняет currentDate()).
+    void visibleRangeChanged(const QDate &start, const QDate &end);
+
 private:
-    void updatePlaceholderText();
+    void rebuildColumnDate();
 
     QDate m_date;
-    QLabel *m_placeholderLabel = nullptr;
+
+    QScrollArea *m_scrollArea = nullptr;
+    TimeGridView *m_grid = nullptr;
 };
