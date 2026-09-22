@@ -1,0 +1,101 @@
+TYPE,CONTENT,DESCRIPTION,PRIORITY,INDENT,DATE,DATE_LANG,TIMEZONE,DURATION,DURATION_UNIT
+section,Понедельник,,4,1,,,,, 
+task,Подъём и разминка,Вода + разминка,3,2,every monday at 06:20,ru,Europe/Moscow,10,minute
+task,Бег 30 мин,,3,2,every monday at 06:30,ru,Europe/Moscow,30,minute
+task,"Душ, завтрак, сборы",,4,2,every monday at 07:00,ru,Europe/Moscow,30,minute
+task,Школа,,2,2,every monday at 08:00,ru,Europe/Moscow,420,minute
+task,Волейбол,,3,2,every monday at 15:00,ru,Europe/Moscow,60,minute
+task,"Дорога домой, перекус",,4,2,every monday at 16:00,ru,Europe/Moscow,30,minute
+task,Домашка,,2,2,every monday at 16:30,ru,Europe/Moscow,60,minute
+task,Профмат,1,5 ч,2,2,every monday at 17:30,ru,Europe/Moscow,90,minute
+task,Ужин,,4,2,every monday at 19:00,ru,Europe/Moscow,30,minute
+task,Русский,45 мин,2,2,every monday at 19:30,ru,Europe/Moscow,45,minute
+task,Турник,,3,2,every monday at 20:15,ru,Europe/Moscow,30,minute
+task,"Душ, подготовка ко сну",,4,2,every monday at 20:45,ru,Europe/Moscow,15,minute
+task,Чтение,,3,2,every monday at 21:00,ru,Europe/Moscow,60,minute
+task,Отбой,,4,2,every monday at 22:00,ru,Europe/Moscow,15,minute
+section,Вторник,,4,1,,,,, 
+task,"Подъём, завтрак, сборы",,4,2,every tuesday at 06:50,ru,Europe/Moscow,70,minute
+task,Школа,,2,2,every tuesday at 08:00,ru,Europe/Moscow,420,minute
+task,"Дорога, перекус",,4,2,every tuesday at 15:00,ru,Europe/Moscow,30,minute
+task,Домашка,,2,2,every tuesday at 15:30,ru,Europe/Moscow,60,minute
+task,Информатика,1,5 ч,2,2,every tuesday at 16:30,ru,Europe/Moscow,90,minute
+task,Отдых и перекус,,4,2,every tuesday at 18:00,ru,Europe/Moscow,30,minute
+task,Бег 1 ч,,3,2,every tuesday at 18:30,ru,Europe/Moscow,60,minute
+task,"Душ, ужин",,4,2,every tuesday at 19:30,ru,Europe/Moscow,45,minute
+task,Турник,,3,2,every tuesday at 20:15,ru,Europe/Moscow,30,minute
+task,Подготовка ко сну,,4,2,every tuesday at 20:45,ru,Europe/Moscow,15,minute
+task,Чтение,,3,2,every tuesday at 21:00,ru,Europe/Moscow,60,minute
+task,Отбой,,4,2,every tuesday at 22:00,ru,Europe/Moscow,15,minute
+section,Среда,,4,1,,,,, 
+task,Подъём,,4,2,every wednesday at 06:20,ru,Europe/Moscow,10,minute
+task,Бег 30 мин,,3,2,every wednesday at 06:30,ru,Europe/Moscow,30,minute
+task,"Душ, завтрак, сборы",,4,2,every wednesday at 07:00,ru,Europe/Moscow,30,minute
+task,Школа,,2,2,every wednesday at 08:00,ru,Europe/Moscow,420,minute
+task,Волейбол,,3,2,every wednesday at 15:00,ru,Europe/Moscow,60,minute
+task,"Дорога, перекус",,4,2,every wednesday at 16:00,ru,Europe/Moscow,30,minute
+task,Домашка,,2,2,every wednesday at 16:30,ru,Europe/Moscow,60,minute
+task,Профмат,1,5 ч,2,2,every wednesday at 17:30,ru,Europe/Moscow,90,minute
+task,Ужин,,4,2,every wednesday at 19:00,ru,Europe/Moscow,30,minute
+task,Информатика,45 мин,2,2,every wednesday at 19:30,ru,Europe/Moscow,45,minute
+task,Турник,,3,2,every wednesday at 20:15,ru,Europe/Moscow,30,minute
+task,Подготовка ко сну,,4,2,every wednesday at 20:45,ru,Europe/Moscow,15,minute
+task,Чтение,,3,2,every wednesday at 21:00,ru,Europe/Moscow,60,minute
+task,Отбой,,4,2,every wednesday at 22:00,ru,Europe/Moscow,15,minute
+section,Четверг,,4,1,,,,, 
+task,"Подъём, завтрак, сборы",,4,2,every thursday at 06:50,ru,Europe/Moscow,70,minute
+task,Школа,,2,2,every thursday at 08:00,ru,Europe/Moscow,420,minute
+task,"Дорога, перекус",,4,2,every thursday at 15:00,ru,Europe/Moscow,30,minute
+task,Домашка,,2,2,every thursday at 15:30,ru,Europe/Moscow,60,minute
+task,Русский,1 ч,2,2,every thursday at 16:30,ru,Europe/Moscow,60,minute
+task,Профмат,1 ч,2,2,every thursday at 17:30,ru,Europe/Moscow,60,minute
+task,Бег 1 ч,,3,2,every thursday at 18:30,ru,Europe/Moscow,60,minute
+task,"Душ, ужин",,4,2,every thursday at 19:30,ru,Europe/Moscow,45,minute
+task,Турник,,3,2,every thursday at 20:15,ru,Europe/Moscow,30,minute
+task,Подготовка ко сну,,4,2,every thursday at 20:45,ru,Europe/Moscow,15,minute
+task,Чтение,,3,2,every thursday at 21:00,ru,Europe/Moscow,60,minute
+task,Отбой,,4,2,every thursday at 22:00,ru,Europe/Moscow,15,minute
+section,Пятница,,4,1,,,,, 
+task,Подъём,,4,2,every friday at 06:20,ru,Europe/Moscow,10,minute
+task,Бег 30 мин,,3,2,every friday at 06:30,ru,Europe/Moscow,30,minute
+task,"Душ, завтрак, сборы",,4,2,every friday at 07:00,ru,Europe/Moscow,30,minute
+task,Школа,,2,2,every friday at 08:00,ru,Europe/Moscow,420,minute
+task,"Дорога, перекус",,4,2,every friday at 15:00,ru,Europe/Moscow,30,minute
+task,Домашка,,2,2,every friday at 15:30,ru,Europe/Moscow,60,minute
+task,Информатика,1,5 ч,2,2,every friday at 16:30,ru,Europe/Moscow,90,minute
+task,Перерыв,,4,2,every friday at 18:00,ru,Europe/Moscow,30,minute
+task,Русский,1 ч,2,2,every friday at 18:30,ru,Europe/Moscow,60,minute
+task,Ужин,,4,2,every friday at 19:30,ru,Europe/Moscow,45,minute
+task,Турник,,3,2,every friday at 20:15,ru,Europe/Moscow,30,minute
+task,Подготовка ко сну,,4,2,every friday at 20:45,ru,Europe/Moscow,15,minute
+task,Чтение,,3,2,every friday at 21:00,ru,Europe/Moscow,60,minute
+task,Отбой,,4,2,every friday at 22:00,ru,Europe/Moscow,15,minute
+section,Суббота,,4,1,,,,, 
+task,"Подъём, завтрак",,4,2,every saturday at 08:00,ru,Europe/Moscow,60,minute
+task,Профмат,2 ч,2,2,every saturday at 09:00,ru,Europe/Moscow,120,minute
+task,Перерыв,,4,2,every saturday at 11:00,ru,Europe/Moscow,15,minute
+task,Информатика,1,5 ч,2,2,every saturday at 11:15,ru,Europe/Moscow,90,minute
+task,Обед,,4,2,every saturday at 12:45,ru,Europe/Moscow,45,minute
+task,Русский,1 ч,2,2,every saturday at 13:30,ru,Europe/Moscow,60,minute
+task,Турник,,3,2,every saturday at 14:30,ru,Europe/Moscow,30,minute
+task,Свободное время и прогулка,,4,2,every saturday at 15:00,ru,Europe/Moscow,180,minute
+task,Ужин,,4,2,every saturday at 18:00,ru,Europe/Moscow,60,minute
+task,"Пробник/срез по предмету",,2,2,every saturday at 19:00,ru,Europe/Moscow,90,minute
+task,Отдых,,4,2,every saturday at 20:30,ru,Europe/Moscow,30,minute
+task,Чтение,,3,2,every saturday at 21:00,ru,Europe/Moscow,60,minute
+task,Отбой,,4,2,every saturday at 22:00,ru,Europe/Moscow,15,minute
+section,Воскресенье,,4,1,,,,, 
+task,"Подъём, завтрак",,4,2,every sunday at 08:30,ru,Europe/Moscow,60,minute
+task,Профмат,1,5 ч,2,2,every sunday at 09:30,ru,Europe/Moscow,90,minute
+task,Перерыв,,4,2,every sunday at 11:00,ru,Europe/Moscow,15,minute
+task,Информатика,1,5 ч,2,2,every sunday at 11:15,ru,Europe/Moscow,90,minute
+task,Обед,,4,2,every sunday at 12:45,ru,Europe/Moscow,45,minute
+task,Русский,1 ч,2,2,every sunday at 13:30,ru,Europe/Moscow,60,minute
+task,Разбор ошибок,,2,2,every sunday at 14:30,ru,Europe/Moscow,30,minute
+task,Отдых и прогулка,,4,2,every sunday at 15:00,ru,Europe/Moscow,180,minute
+task,"Бег 1 ч (опционально)",,3,2,every sunday at 18:00,ru,Europe/Moscow,60,minute
+task,Ужин,,4,2,every sunday at 19:00,ru,Europe/Moscow,45,minute
+task,Турник,,3,2,every sunday at 20:00,ru,Europe/Moscow,30,minute
+task,Отдых,,4,2,every sunday at 20:30,ru,Europe/Moscow,30,minute
+task,Чтение,,3,2,every sunday at 21:00,ru,Europe/Moscow,60,minute
+task,Отбой,,4,2,every sunday at 22:00,ru,Europe/Moscow,15,minute

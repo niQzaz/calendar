@@ -319,6 +319,17 @@ void MainWindow::onImportCsvClicked()
         return;
     }
 
+    if (result.unsupportedFormat) {
+        QMessageBox::warning(
+            this, "Import failed",
+            "This file's column headers don't match a supported format.\n\n"
+            "Supported formats:\n"
+            "- date,start,end,subject,description\n"
+            "- TYPE,CONTENT,DESCRIPTION,PRIORITY,INDENT,DATE,DATE_LANG,TIMEZONE,DURATION,DURATION_UNIT"
+        );
+        return;
+    }
+
     if (result.totalDataRows == 0) {
         QMessageBox::information(this, "Import CSV", "No data rows found in the file.");
         return;

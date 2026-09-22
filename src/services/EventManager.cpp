@@ -57,6 +57,9 @@ Event eventFromQuery(const QSqlQuery &query)
     if (!endDateStr.isEmpty())
         event.recurrenceEndDate = QDate::fromString(endDateStr, Qt::ISODate);
 
+    event.priority = query.value("priority").toInt();
+    event.timezone = query.value("timezone").toString();
+
     return event;
 }
 
@@ -91,7 +94,9 @@ EventManager::EventManager()
         "  pomodoros_completed INTEGER NOT NULL DEFAULT 0,"
         "  recurrence_type TEXT NOT NULL DEFAULT 'none',"
         "  recurrence_interval INTEGER NOT NULL DEFAULT 1,"
-        "  recurrence_end_date TEXT"
+        "  recurrence_end_date TEXT,"
+        "  priority INTEGER NOT NULL DEFAULT 0,"
+        "  timezone TEXT NOT NULL DEFAULT ''"
         ")"
     );
 
@@ -113,6 +118,8 @@ EventManager::EventManager()
         {"recurrence_type", "ALTER TABLE events ADD COLUMN recurrence_type TEXT NOT NULL DEFAULT 'none'"},
         {"recurrence_interval", "ALTER TABLE events ADD COLUMN recurrence_interval INTEGER NOT NULL DEFAULT 1"},
         {"recurrence_end_date", "ALTER TABLE events ADD COLUMN recurrence_end_date TEXT"},
+        {"priority", "ALTER TABLE events ADD COLUMN priority INTEGER NOT NULL DEFAULT 0"},
+        {"timezone", "ALTER TABLE events ADD COLUMN timezone TEXT NOT NULL DEFAULT ''"},
     };
 
     for (const ColumnMigration &migration : migrations) {
@@ -137,9 +144,9 @@ int EventManager::addEvent(const Event &event)
     QSqlQuery query(QSqlDatabase::database(m_connectionName));
     query.prepare(
         "INSERT INTO events (title, date, start_time, end_time, description, "
-        "recurrence_type, recurrence_interval, recurrence_end_date) "
+        "recurrence_type, recurrence_interval, recurrence_end_date, priority, timezone) "
         "VALUES (:title, :date, :start_time, :end_time, :description, "
-        ":recurrence_type, :recurrence_interval, :recurrence_end_date)"
+        ":recurrence_type, :recurrence_interval, :recurrence_end_date, :priority, :timezone)"
     );
     query.bindValue(":title", event.title);
     query.bindValue(":date", event.date.toString(Qt::ISODate));
@@ -150,6 +157,8 @@ int EventManager::addEvent(const Event &event)
     query.bindValue(":recurrence_interval", event.recurrenceInterval);
     query.bindValue(":recurrence_end_date",
         event.recurrenceEndDate.isValid() ? QVariant(event.recurrenceEndDate.toString(Qt::ISODate)) : QVariant());
+    query.bindValue(":priority", event.priority);
+    query.bindValue(":timezone", event.timezone);
 
     if (!query.exec()) {
         qWarning() << "Failed to insert event:" << query.lastError().text();
@@ -166,7 +175,8 @@ bool EventManager::updateEvent(const Event &event)
         "UPDATE events SET title = :title, date = :date, start_time = :start_time, "
         "end_time = :end_time, description = :description, "
         "recurrence_type = :recurrence_type, recurrence_interval = :recurrence_interval, "
-        "recurrence_end_date = :recurrence_end_date WHERE id = :id"
+        "recurrence_end_date = :recurrence_end_date, priority = :priority, timezone = :timezone "
+        "WHERE id = :id"
     );
     query.bindValue(":title", event.title);
     query.bindValue(":date", event.date.toString(Qt::ISODate));
@@ -177,6 +187,8 @@ bool EventManager::updateEvent(const Event &event)
     query.bindValue(":recurrence_interval", event.recurrenceInterval);
     query.bindValue(":recurrence_end_date",
         event.recurrenceEndDate.isValid() ? QVariant(event.recurrenceEndDate.toString(Qt::ISODate)) : QVariant());
+    query.bindValue(":priority", event.priority);
+    query.bindValue(":timezone", event.timezone);
     query.bindValue(":id", event.id);
 
     if (!query.exec()) {
