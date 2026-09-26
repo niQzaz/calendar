@@ -142,9 +142,16 @@ void MonthDayCell::paintEvent(QPaintEvent *)
         painter.setBrush(m_theme.eventBackground);
         painter.drawRoundedRect(chipRect, kChipRadius, kChipRadius);
 
-        // Цветная полоса слева - визуальный акцент, как в задумке дизайна.
+        // Цветная полоса слева - у события с категорией берём её цвет,
+        // иначе (как и раньше) общий акцентный цвет темы.
         const QRect accentRect(chipRect.left(), chipRect.top(), 3, chipRect.height());
-        painter.setBrush(m_theme.accent);
+        QColor accentColor = m_theme.accent;
+        if (!ev.categoryColor.isEmpty()) {
+            const QColor categoryColor(ev.categoryColor);
+            if (categoryColor.isValid())
+                accentColor = categoryColor;
+        }
+        painter.setBrush(accentColor);
         painter.drawRect(accentRect);
 
         const QString label = QString("%1 %2").arg(ev.startTime.toString("HH:mm")).arg(ev.title);

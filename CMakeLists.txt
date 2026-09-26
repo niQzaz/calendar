@@ -18,6 +18,7 @@ add_executable(QtCalendarApp
     src/main.cpp
     src/models/Event.h
     src/models/Event.cpp
+    src/models/Category.h
     src/services/EventManager.h
     src/services/EventManager.cpp
     src/services/PomodoroTimer.h
@@ -56,8 +57,22 @@ add_executable(QtCalendarApp
     src/ui/PomodoroWidget.cpp
     src/ui/SettingsDialog.h
     src/ui/SettingsDialog.cpp
+    src/ui/CategoryManagerDialog.h
+    src/ui/CategoryManagerDialog.cpp
 )
 
 target_include_directories(QtCalendarApp PRIVATE src)
 
 target_link_libraries(QtCalendarApp PRIVATE Qt6::Widgets Qt6::Sql)
+
+# Тесты (MVP1, раздел 11 Product Context) - подключаются, только если
+# у установленного Qt есть модуль Test. Модуль не обязателен для сборки
+# самого приложения, поэтому его отсутствие не должно ломать QtCalendarApp -
+# просто тесты в этом случае не собираются.
+find_package(Qt6 QUIET COMPONENTS Test)
+if(TARGET Qt6::Test)
+    enable_testing()
+    add_subdirectory(tests)
+else()
+    message(STATUS "Qt6::Test not found - skipping tests (QtCalendarApp target is unaffected)")
+endif()

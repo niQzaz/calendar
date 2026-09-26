@@ -43,6 +43,7 @@ private slots:
     void onImportCsvClicked();
     void onVisibleRangeChanged(const QDate &start, const QDate &end);
     void onSettingsClicked();
+    void onManageCategoriesClicked();
     void onCreateEventRequested(const QDate &date);   // двойной клик по пустому месту ячейки (Month)
     void onCreateEventRequestedWithTime(const QDate &date, const QTime &time); // клик по сетке (Week/Day)
     void onEditEventRequested(int eventId);            // двойной клик по мини-карточке события

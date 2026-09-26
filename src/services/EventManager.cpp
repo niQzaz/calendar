@@ -37,6 +37,30 @@ RecurrenceType recurrenceTypeFromString(const QString &value)
     return RecurrenceType::None;
 }
 
+// Путь к файлу БД для обычного (не тестового) использования - вынесен
+// в отдельную функцию, чтобы конструктор по умолчанию мог просто передать
+// его в EventManager(databasePath, connectionName), не дублируя логику.
+QString defaultDatabaseFilePath()
+{
+    const QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QDir().mkpath(dataDir); // на случай первого запуска - папки ещё нет
+    return dataDir + "/calendar.db";
+}
+
+// QString() (default-constructed, "null"-строка) при bindValue() уходит
+// в Qt SQL как SQL NULL, а не как пустая строка - причём NULL игнорирует
+// "DEFAULT ''" колонки: DEFAULT применяется только когда колонка вообще
+// не упомянута в запросе, а не когда в неё явно передан NULL. Колонка
+// timezone объявлена NOT NULL, а поле Event::timezone не имеет явного
+// инициализатора (значит остаётся null-строкой везде, где вызывающий код
+// его не трогает - например, EventDialog и "простой" формат CSV никогда
+// его не заполняют). Без этой нормализации addEvent()/updateEvent() для
+// такого Event падали с "NOT NULL constraint failed: events.timezone".
+QString nonNullTimezone(const QString &timezone)
+{
+    return timezone.isNull() ? QString(QLatin1String("")) : timezone;
+}
+
 // Собирает Event из текущей строки результата запроса.
 // Работает и для SELECT *, и для SELECT с явным списком колонок -
 // главное, чтобы в результате были колонки с этими именами.
@@ -60,22 +84,43 @@ Event eventFromQuery(const QSqlQuery &query)
     event.priority = query.value("priority").toInt();
     event.timezone = query.value("timezone").toString();
 
+    // category_id - настоящая колонка events, может быть SQL NULL ("без
+    // категории"); category_name/category_color приходят только если
+    // запрос делал LEFT JOIN с categories (см. eventsSelectWithCategoryJoin()
+    // ниже) - если запрос JOIN не делал, оба поля просто останутся "".
+    const QVariant categoryIdValue = query.value("category_id");
+    event.categoryId = categoryIdValue.isNull() ? -1 : categoryIdValue.toInt();
+    event.categoryName = query.value("category_name").toString();
+    event.categoryColor = query.value("category_color").toString();
+
     return event;
+}
+
+// SQL-запрос "SELECT ... FROM events" с LEFT JOIN на categories - нужен
+// везде, где потом вызывается eventFromQuery() и важен цвет/имя категории
+// (без JOIN category_name/category_color в eventFromQuery() просто
+// останутся пустыми - событие отрисуется без цвета категории, не ошибка).
+// К возвращаемой строке в местах использования дописывается WHERE/... .
+QString eventsSelectWithCategoryJoin()
+{
+    return QStringLiteral(
+        "SELECT events.*, categories.name AS category_name, categories.color AS category_color "
+        "FROM events LEFT JOIN categories ON events.category_id = categories.id"
+    );
 }
 
 } // namespace
 
 EventManager::EventManager()
-    : m_connectionName(kConnectionName)
+    : EventManager(defaultDatabaseFilePath(), QString::fromLatin1(kConnectionName))
+{
+}
+
+EventManager::EventManager(const QString &databasePath, const QString &connectionName)
+    : m_connectionName(connectionName)
 {
     QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", m_connectionName);
-
-    // Файл базы кладём в стандартную папку данных приложения
-    // (на Linux это обычно ~/.local/share/<AppName>), а не рядом
-    // с исполняемым файлом - так принято для пользовательских данных.
-    const QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    QDir().mkpath(dataDir); // на случай первого запуска - папки ещё нет
-    db.setDatabaseName(dataDir + "/calendar.db");
+    db.setDatabaseName(databasePath);
 
     if (!db.open()) {
         qWarning() << "Failed to open database:" << db.lastError().text();
@@ -96,12 +141,26 @@ EventManager::EventManager()
         "  recurrence_interval INTEGER NOT NULL DEFAULT 1,"
         "  recurrence_end_date TEXT,"
         "  priority INTEGER NOT NULL DEFAULT 0,"
-        "  timezone TEXT NOT NULL DEFAULT ''"
+        "  timezone TEXT NOT NULL DEFAULT '',"
+        "  category_id INTEGER"
         ")"
     );
 
     if (!ok)
         qWarning() << "Failed to create events table:" << query.lastError().text();
+
+    // Отдельная таблица категорий (MVP2) - без FK-констрейнта, т.к. нигде
+    // в этой схеме FK и так не используются; ссылочная целостность
+    // поддерживается вручную в removeCategory().
+    if (!query.exec(
+        "CREATE TABLE IF NOT EXISTS categories ("
+        "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  name TEXT NOT NULL,"
+        "  color TEXT NOT NULL"
+        ")"
+    )) {
+        qWarning() << "Failed to create categories table:" << query.lastError().text();
+    }
 
     // Миграция для баз, созданных в более ранних этапах: собираем список
     // уже существующих колонок и добавляем те, которых не хватает.
@@ -120,6 +179,7 @@ EventManager::EventManager()
         {"recurrence_end_date", "ALTER TABLE events ADD COLUMN recurrence_end_date TEXT"},
         {"priority", "ALTER TABLE events ADD COLUMN priority INTEGER NOT NULL DEFAULT 0"},
         {"timezone", "ALTER TABLE events ADD COLUMN timezone TEXT NOT NULL DEFAULT ''"},
+        {"category_id", "ALTER TABLE events ADD COLUMN category_id INTEGER"},
     };
 
     for (const ColumnMigration &migration : migrations) {
@@ -144,9 +204,9 @@ int EventManager::addEvent(const Event &event)
     QSqlQuery query(QSqlDatabase::database(m_connectionName));
     query.prepare(
         "INSERT INTO events (title, date, start_time, end_time, description, "
-        "recurrence_type, recurrence_interval, recurrence_end_date, priority, timezone) "
+        "recurrence_type, recurrence_interval, recurrence_end_date, priority, timezone, category_id) "
         "VALUES (:title, :date, :start_time, :end_time, :description, "
-        ":recurrence_type, :recurrence_interval, :recurrence_end_date, :priority, :timezone)"
+        ":recurrence_type, :recurrence_interval, :recurrence_end_date, :priority, :timezone, :category_id)"
     );
     query.bindValue(":title", event.title);
     query.bindValue(":date", event.date.toString(Qt::ISODate));
@@ -158,7 +218,8 @@ int EventManager::addEvent(const Event &event)
     query.bindValue(":recurrence_end_date",
         event.recurrenceEndDate.isValid() ? QVariant(event.recurrenceEndDate.toString(Qt::ISODate)) : QVariant());
     query.bindValue(":priority", event.priority);
-    query.bindValue(":timezone", event.timezone);
+    query.bindValue(":timezone", nonNullTimezone(event.timezone));
+    query.bindValue(":category_id", event.categoryId >= 0 ? QVariant(event.categoryId) : QVariant());
 
     if (!query.exec()) {
         qWarning() << "Failed to insert event:" << query.lastError().text();
@@ -175,7 +236,8 @@ bool EventManager::updateEvent(const Event &event)
         "UPDATE events SET title = :title, date = :date, start_time = :start_time, "
         "end_time = :end_time, description = :description, "
         "recurrence_type = :recurrence_type, recurrence_interval = :recurrence_interval, "
-        "recurrence_end_date = :recurrence_end_date, priority = :priority, timezone = :timezone "
+        "recurrence_end_date = :recurrence_end_date, priority = :priority, timezone = :timezone, "
+        "category_id = :category_id "
         "WHERE id = :id"
     );
     query.bindValue(":title", event.title);
@@ -188,7 +250,8 @@ bool EventManager::updateEvent(const Event &event)
     query.bindValue(":recurrence_end_date",
         event.recurrenceEndDate.isValid() ? QVariant(event.recurrenceEndDate.toString(Qt::ISODate)) : QVariant());
     query.bindValue(":priority", event.priority);
-    query.bindValue(":timezone", event.timezone);
+    query.bindValue(":timezone", nonNullTimezone(event.timezone));
+    query.bindValue(":category_id", event.categoryId >= 0 ? QVariant(event.categoryId) : QVariant());
     query.bindValue(":id", event.id);
 
     if (!query.exec()) {
@@ -216,7 +279,7 @@ bool EventManager::removeEvent(int id)
 bool EventManager::eventById(int id, Event &outEvent) const
 {
     QSqlQuery query(QSqlDatabase::database(m_connectionName));
-    query.prepare("SELECT * FROM events WHERE id = :id");
+    query.prepare(eventsSelectWithCategoryJoin() + " WHERE events.id = :id");
     query.bindValue(":id", id);
 
     if (!query.exec() || !query.next())
@@ -246,7 +309,7 @@ QVector<Event> EventManager::eventsForDate(const QDate &date) const
 
     // 1. Обычные (неповторяющиеся) события, у которых date совпадает буквально.
     QSqlQuery query(QSqlDatabase::database(m_connectionName));
-    query.prepare("SELECT * FROM events WHERE date = :date AND recurrence_type = 'none'");
+    query.prepare(eventsSelectWithCategoryJoin() + " WHERE events.date = :date AND events.recurrence_type = 'none'");
     query.bindValue(":date", date.toString(Qt::ISODate));
 
     if (!query.exec()) {
@@ -325,7 +388,7 @@ QVector<Event> EventManager::eventsInRange(const QDate &rangeStart, const QDate 
     // 1. Обычные события внутри диапазона - один SQL-запрос.
     QSqlQuery query(QSqlDatabase::database(m_connectionName));
     query.prepare(
-        "SELECT * FROM events WHERE recurrence_type = 'none' AND date BETWEEN :start AND :end"
+        eventsSelectWithCategoryJoin() + " WHERE events.recurrence_type = 'none' AND events.date BETWEEN :start AND :end"
     );
     query.bindValue(":start", rangeStart.toString(Qt::ISODate));
     query.bindValue(":end", rangeEnd.toString(Qt::ISODate));
@@ -366,7 +429,7 @@ QVector<Event> EventManager::allRecurringTemplates() const
     QVector<Event> templates;
 
     QSqlQuery query(QSqlDatabase::database(m_connectionName));
-    if (!query.exec("SELECT * FROM events WHERE recurrence_type <> 'none'")) {
+    if (!query.exec(eventsSelectWithCategoryJoin() + " WHERE events.recurrence_type <> 'none'")) {
         qWarning() << "Failed to load recurring events:" << query.lastError().text();
         return templates;
     }
@@ -375,4 +438,95 @@ QVector<Event> EventManager::allRecurringTemplates() const
         templates.append(eventFromQuery(query));
 
     return templates;
+}
+
+int EventManager::addCategory(const Category &category)
+{
+    QSqlQuery query(QSqlDatabase::database(m_connectionName));
+    query.prepare("INSERT INTO categories (name, color) VALUES (:name, :color)");
+    query.bindValue(":name", category.name);
+    query.bindValue(":color", category.color);
+
+    if (!query.exec()) {
+        qWarning() << "Failed to insert category:" << query.lastError().text();
+        return -1;
+    }
+
+    return query.lastInsertId().toInt();
+}
+
+bool EventManager::updateCategory(const Category &category)
+{
+    QSqlQuery query(QSqlDatabase::database(m_connectionName));
+    query.prepare("UPDATE categories SET name = :name, color = :color WHERE id = :id");
+    query.bindValue(":name", category.name);
+    query.bindValue(":color", category.color);
+    query.bindValue(":id", category.id);
+
+    if (!query.exec()) {
+        qWarning() << "Failed to update category:" << query.lastError().text();
+        return false;
+    }
+
+    return query.numRowsAffected() > 0;
+}
+
+bool EventManager::removeCategory(int id)
+{
+    QSqlQuery query(QSqlDatabase::database(m_connectionName));
+
+    // Сначала "отвязываем" от категории все события, которые на неё
+    // ссылались - без этого шага у них остался бы category_id, ведущий
+    // в никуда (строка в categories уже удалена). Раз в этой схеме нет
+    // настоящих FK-констрейнтов, целостность поддерживаем вручную, здесь.
+    query.prepare("UPDATE events SET category_id = NULL WHERE category_id = :id");
+    query.bindValue(":id", id);
+    if (!query.exec())
+        qWarning() << "Failed to clear category_id before delete:" << query.lastError().text();
+
+    query.prepare("DELETE FROM categories WHERE id = :id");
+    query.bindValue(":id", id);
+
+    if (!query.exec()) {
+        qWarning() << "Failed to delete category:" << query.lastError().text();
+        return false;
+    }
+
+    return query.numRowsAffected() > 0;
+}
+
+bool EventManager::categoryById(int id, Category &outCategory) const
+{
+    QSqlQuery query(QSqlDatabase::database(m_connectionName));
+    query.prepare("SELECT * FROM categories WHERE id = :id");
+    query.bindValue(":id", id);
+
+    if (!query.exec() || !query.next())
+        return false;
+
+    outCategory.id = query.value("id").toInt();
+    outCategory.name = query.value("name").toString();
+    outCategory.color = query.value("color").toString();
+    return true;
+}
+
+QVector<Category> EventManager::allCategories() const
+{
+    QVector<Category> result;
+
+    QSqlQuery query(QSqlDatabase::database(m_connectionName));
+    if (!query.exec("SELECT * FROM categories ORDER BY name COLLATE NOCASE")) {
+        qWarning() << "Failed to load categories:" << query.lastError().text();
+        return result;
+    }
+
+    while (query.next()) {
+        Category category;
+        category.id = query.value("id").toInt();
+        category.name = query.value("name").toString();
+        category.color = query.value("color").toString();
+        result.append(category);
+    }
+
+    return result;
 }

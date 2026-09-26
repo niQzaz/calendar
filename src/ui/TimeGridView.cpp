@@ -247,7 +247,15 @@ void TimeGridView::paintEvents(QPainter &painter, const QRect &gridRect)
             painter.setBrush(m_theme.eventBackground);
             painter.drawRoundedRect(eventRect, 4, 4);
 
-            painter.setBrush(m_theme.accent);
+            // Цветная полоса слева - у события с категорией берём её цвет,
+            // иначе (как и раньше) общий акцентный цвет темы.
+            QColor accentColor = m_theme.accent;
+            if (!slot.event.categoryColor.isEmpty()) {
+                const QColor categoryColor(slot.event.categoryColor);
+                if (categoryColor.isValid())
+                    accentColor = categoryColor;
+            }
+            painter.setBrush(accentColor);
             painter.drawRect(QRect(eventRect.left(), eventRect.top(), 3, eventRect.height()));
 
             if (slot.event.id == m_selectedEventId) {

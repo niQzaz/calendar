@@ -52,6 +52,17 @@ struct Event
     int priority = 0;      // 0 = не указан/не важен; чем меньше число, тем
                             // важнее задача (так было в исходном CSV: 1 - высший)
     QString timezone;      // например "Europe/Moscow"; пусто = не указан
+
+    // Категория (MVP2). categoryId - единственное, что реально хранится
+    // в таблице events (внешний ключ на categories.id; -1 = без категории).
+    // categoryName/categoryColor НЕ хранятся в events - EventManager
+    // подставляет их через LEFT JOIN с categories при чтении, только
+    // для удобства отображения в UI. Не пишите их напрямую при создании
+    // Event для addEvent()/updateEvent() - они игнорируются, источник
+    // истины для цвета/имени - таблица categories.
+    int categoryId = -1;
+    QString categoryName;
+    QString categoryColor;
 };
 
 // Отвечает на вопрос "выпадает ли это событие (обычное или повторяющееся)

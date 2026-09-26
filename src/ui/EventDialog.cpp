@@ -12,6 +12,9 @@
 #include <QHBoxLayout>
 #include <QDialogButtonBox>
 #include <QMessageBox>
+#include <QPixmap>
+#include <QPainter>
+#include <QColor>
 
 EventDialog::EventDialog(const QDate &defaultDate, QWidget *parent)
     : QDialog(parent)
@@ -64,6 +67,11 @@ EventDialog::EventDialog(const Event &eventToEdit, QWidget *parent)
     m_hasEndDateCheck->setChecked(hasEndDate); // сам включит/выключит m_recurrenceEndDateEdit
     if (hasEndDate)
         m_recurrenceEndDateEdit->setDate(eventToEdit.recurrenceEndDate);
+
+    // Сам комбобокс категорий будет заполнен позже, извне, через
+    // setCategories() (см. её комментарий в EventDialog.h) - пока просто
+    // запоминаем, какую категорию нужно будет выбрать, когда список появится.
+    m_pendingCategoryId = eventToEdit.categoryId;
 }
 
 void EventDialog::buildForm()
@@ -112,12 +120,19 @@ void EventDialog::buildForm()
     endDateLayout->addWidget(m_hasEndDateCheck);
     endDateLayout->addWidget(m_recurrenceEndDateEdit);
 
+    // --- Категория (MVP2) ---
+    // Здесь только "No category" - реальный список подставляется снаружи
+    // через setCategories() (диалог сам не читает EventManager, см. .h).
+    m_categoryCombo = new QComboBox(this);
+    m_categoryCombo->addItem("No category", -1);
+
     auto *formLayout = new QFormLayout();
     formLayout->addRow("Title", m_titleEdit);
     formLayout->addRow("Date", m_dateEdit);
     formLayout->addRow("Start", m_startTimeEdit);
     formLayout->addRow("End", m_endTimeEdit);
     formLayout->addRow("Description", m_descriptionEdit);
+    formLayout->addRow("Category", m_categoryCombo);
     formLayout->addRow("Repeat", m_recurrenceCombo);
     formLayout->addRow("Every", m_customIntervalSpin);
     formLayout->addRow("", endDateRow);
@@ -132,6 +147,33 @@ void EventDialog::buildForm()
     connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
 
     setMinimumWidth(320);
+}
+
+void EventDialog::setCategories(const QVector<Category> &categories)
+{
+    m_categoryCombo->clear();
+    m_categoryCombo->addItem("No category", -1);
+
+    for (const Category &category : categories) {
+        m_categoryCombo->addItem(category.name, category.id);
+
+        // Маленький цветной кружок рядом с именем - тот же принцип,
+        // что и цветная полоса на карточках событий в календаре.
+        QColor color(category.color);
+        if (!color.isValid())
+            color = Qt::gray;
+        QPixmap swatch(12, 12);
+        swatch.fill(Qt::transparent);
+        QPainter painter(&swatch);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(color);
+        painter.drawEllipse(0, 0, 12, 12);
+        m_categoryCombo->setItemIcon(m_categoryCombo->count() - 1, QIcon(swatch));
+    }
+
+    const int index = m_categoryCombo->findData(m_pendingCategoryId);
+    m_categoryCombo->setCurrentIndex(index >= 0 ? index : 0);
 }
 
 void EventDialog::onRecurrenceTypeChanged(int index)
@@ -173,6 +215,8 @@ Event EventDialog::toEvent() const
     result.recurrenceType = static_cast<RecurrenceType>(m_recurrenceCombo->currentData().toInt());
     result.recurrenceInterval = m_customIntervalSpin->value();
     result.recurrenceEndDate = m_hasEndDateCheck->isChecked() ? m_recurrenceEndDateEdit->date() : QDate();
+
+    result.categoryId = m_categoryCombo->currentData().toInt();
 
     return result;
 }

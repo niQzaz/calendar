@@ -3,6 +3,7 @@
 #include "EventDialog.h"
 #include "PomodoroWidget.h"
 #include "SettingsDialog.h"
+#include "CategoryManagerDialog.h"
 #include "services/CsvImporter.h"
 #include "services/NotificationService.h"
 #include "services/EventReminder.h"
@@ -58,6 +59,9 @@ MainWindow::MainWindow(QWidget *parent)
 
     auto *settingsAction = fileMenu->addAction("Settings...");
     connect(settingsAction, &QAction::triggered, this, &MainWindow::onSettingsClicked);
+
+    auto *categoriesAction = fileMenu->addAction("Manage categories...");
+    connect(categoriesAction, &QAction::triggered, this, &MainWindow::onManageCategoriesClicked);
 
     // Today и Pomodoro в меню не показываем - они нужны только как
     // горячие клавиши, поэтому addAction(this), а не в меню.
@@ -216,6 +220,7 @@ void MainWindow::onAddEventClicked()
 void MainWindow::openNewEventDialog(const QDate &defaultDate)
 {
     EventDialog dialog(defaultDate, this);
+    dialog.setCategories(m_eventManager.allCategories());
     if (dialog.exec() != QDialog::Accepted)
         return;
 
@@ -227,6 +232,7 @@ void MainWindow::openNewEventDialog(const QDate &defaultDate)
 void MainWindow::openNewEventDialog(const QDate &defaultDate, const QTime &defaultStartTime)
 {
     EventDialog dialog(defaultDate, defaultStartTime, this);
+    dialog.setCategories(m_eventManager.allCategories());
     if (dialog.exec() != QDialog::Accepted)
         return;
 
@@ -254,6 +260,7 @@ void MainWindow::openEditEventDialog(int eventId)
         return;
 
     EventDialog dialog(existingEvent, this);
+    dialog.setCategories(m_eventManager.allCategories());
     if (dialog.exec() != QDialog::Accepted)
         return;
 
@@ -390,6 +397,18 @@ void MainWindow::onSettingsClicked()
     // Здесь применяем то, что ThemeManager не касается.
     m_calendarView->setFirstDayOfWeek(m_settings.sundayFirst());
     applyShortcuts();
+}
+
+void MainWindow::onManageCategoriesClicked()
+{
+    CategoryManagerDialog dialog(&m_eventManager, this);
+    dialog.exec(); // CategoryManagerDialog пишет в EventManager сразу по каждому действию
+
+    // Цвет/имя категории у уже загруженных Event - "снимок" на момент чтения
+    // из БД (JOIN, не живая ссылка), поэтому после закрытия диалога нужно
+    // перечитать события, иначе на экране останутся старые цвета/имена.
+    refreshEventsList();
+    refreshCalendarMarkers();
 }
 
 void MainWindow::onDeleteEventClicked()

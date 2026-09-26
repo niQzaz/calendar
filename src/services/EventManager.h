@@ -1,6 +1,7 @@
 #pragma once
 
 #include "models/Event.h"
+#include "models/Category.h"
 
 #include <QVector>
 #include <QSet>
@@ -26,6 +27,15 @@ public:
     // Открывает (или создаёт, если его ещё нет) файл базы данных
     // и создаёт таблицу events, если она отсутствует.
     EventManager();
+
+    // То же самое, но с явным путём к файлу БД и именем подключения Qt SQL -
+    // используется тестами (например, ":memory:" + уникальное имя на каждый
+    // тест), чтобы не трогать реальную пользовательскую базу и не пересекаться
+    // с другими открытыми соединениями. Обычный конструктор выше просто
+    // вызывает этот с вычисленным путём по умолчанию и именем подключения
+    // по умолчанию - поведение для существующих вызывающих не меняется.
+    EventManager(const QString &databasePath, const QString &connectionName);
+
     ~EventManager();
 
     // EventManager владеет соединением с БД (именованным подключением
@@ -67,6 +77,29 @@ public:
     // а в будущем и Week/Day View. Та же идея, что у eventsForDate(), только
     // сразу на диапазон дат, а не на один день.
     QVector<Event> eventsInRange(const QDate &rangeStart, const QDate &rangeEnd) const;
+
+    // --- Категории (MVP2) ---
+    // Отдельная таблица categories - см. models/Category.h. Event хранит
+    // только category_id (внешний ключ, без принудительного FK-контроля
+    // средствами SQLite - в остальной схеме их тоже нет); имя и цвет
+    // Event получает через LEFT JOIN при чтении, а не хранит у себя.
+
+    // Добавляет категорию, возвращает присвоенный базой id. -1 при ошибке.
+    int addCategory(const Category &category);
+
+    // Обновляет категорию с идентификатором category.id. true при успехе.
+    bool updateCategory(const Category &category);
+
+    // Удаляет категорию по id. У всех событий, ссылавшихся на неё,
+    // category_id сбрасывается в "без категории" (а не событие целиком) -
+    // потеря цвета категории не должна тихо удалять чужие события.
+    bool removeCategory(int id);
+
+    // Находит категорию по id. Возвращает true и заполняет outCategory, если найдена.
+    bool categoryById(int id, Category &outCategory) const;
+
+    // Все категории, отсортированные по имени - для выпадающих списков в UI.
+    QVector<Category> allCategories() const;
 
 private:
     // Загружает все события с recurrence_type != 'none' - их всегда немного

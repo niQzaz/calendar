@@ -1,8 +1,10 @@
 #pragma once
 
 #include <QDialog>
+#include <QVector>
 
 #include "models/Event.h"
+#include "models/Category.h"
 
 class QLineEdit;
 class QDateEdit;
@@ -35,6 +37,13 @@ public:
     // Режим "редактирование" - поля формы предзаполняются значениями eventToEdit.
     explicit EventDialog(const Event &eventToEdit, QWidget *parent = nullptr);
 
+    // Список категорий для выпадающего списка (MVP2) - вызывается снаружи
+    // (MainWindow), т.к. сам диалог не хранит EventManager (см. toEvent()
+    // ниже - тот же принцип: диалог только собирает данные формы, запись
+    // и чтение из БД делает вызывающий код). Если не вызвать вовсе, в списке
+    // будет только "No category" - не ошибка, просто нет категорий на выбор.
+    void setCategories(const QVector<Category> &categories);
+
     // Событие, собранное из полей формы.
     // toEvent().id == -1 для нового события, либо id редактируемого события -
     // по этому полю MainWindow решает, вызывать addEvent() или updateEvent().
@@ -60,4 +69,11 @@ private:
     QSpinBox *m_customIntervalSpin = nullptr;   // активен только при "Custom interval"
     QCheckBox *m_hasEndDateCheck = nullptr;
     QDateEdit *m_recurrenceEndDateEdit = nullptr;
+
+    // Категория (MVP2).
+    QComboBox *m_categoryCombo = nullptr;
+    // categoryId редактируемого события - применяется как выбор в комбобоксе
+    // в setCategories(), т.к. на момент конструктора (до вызова setCategories())
+    // сам список категорий ещё не заполнен и выбрать нужный пункт нечем.
+    int m_pendingCategoryId = -1;
 };
