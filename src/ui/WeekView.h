@@ -48,6 +48,10 @@ signals:
     // Двойной клик по событию - запрос открыть его на редактирование.
     void editEventRequested(int eventId);
 
+    // Событие перетащили мышью на новое время/день (MVP2, drag & drop) -
+    // просто ретранслируется из TimeGridView, см. его комментарий к сигналу.
+    void eventRescheduled(int eventId, const QDate &newDate, const QTime &newStartTime, const QTime &newEndTime);
+
     // Видимый диапазон дат сменился (навигация по неделям) -
     // MainWindow должен подгрузить события для нового диапазона.
     void visibleRangeChanged(const QDate &start, const QDate &end);

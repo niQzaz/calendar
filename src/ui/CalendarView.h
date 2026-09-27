@@ -72,6 +72,10 @@ signals:
     void createEventRequestedWithTime(const QDate &date, const QTime &time); // Week/Day: клик по пустому месту сетки
     void editEventRequested(int eventId);                               // любое представление
 
+    // Событие перетащили мышью на новое время/день (MVP2, drag & drop) -
+    // приходит от WeekView или DayView (в MonthView drag пока не реализован).
+    void eventRescheduled(int eventId, const QDate &newDate, const QTime &newStartTime, const QTime &newEndTime);
+
 private slots:
     void onPreviousClicked();
     void onNextClicked();

@@ -28,8 +28,8 @@
 //
 // Почему custom-painted QWidget, а не десятки мелких QWidget на каждую
 // линию сетки/событие: и производительность, и то, что вся геометрия
-// (сетка, события, в будущих фазах - drag/resize preview) взаимосвязана
-// и проще рисуется одним paintEvent, чем синхронизируется между виджетами.
+// (сетка, события, drag-превью) взаимосвязана и проще рисуется одним
+// paintEvent, чем синхронизируется между виджетами.
 class TimeGridView : public QWidget
 {
     Q_OBJECT
@@ -68,9 +68,19 @@ signals:
     // Двойной клик по событию - запрос открыть его на редактирование.
     void editEventRequested(int eventId);
 
+    // Событие перетащили или растянули мышью (MVP2, drag & drop / resize).
+    // eventId - id события; newDate/newStartTime/newEndTime - результат:
+    // при перемещении меняются дата+начало (длительность та же), при
+    // resize за нижний край - только конец (дата и начало прежние).
+    // Эмитится только для НЕ повторяющихся событий - см. комментарий
+    // в mousePressEvent(), почему повторяющиеся так тащить нельзя.
+    void eventRescheduled(int eventId, const QDate &newDate, const QTime &newStartTime, const QTime &newEndTime);
+
 protected:
     void paintEvent(QPaintEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
     void mouseDoubleClickEvent(QMouseEvent *event) override;
     void wheelEvent(QWheelEvent *event) override;
     QSize sizeHint() const override;
@@ -78,7 +88,7 @@ protected:
 private:
     struct HitEvent
     {
-        int id;
+        Event event; // полная копия, не только id - нужна для drag (дата/время/recurrenceType)
         QRect rect;
     };
 
@@ -87,11 +97,24 @@ private:
     void paintGridLines(QPainter &painter, const QRect &gridRect);
     void paintCurrentTimeLine(QPainter &painter, const QRect &gridRect);
     void paintEvents(QPainter &painter, const QRect &gridRect);
+    void paintDragPreview(QPainter &painter, const QRect &gridRect);
 
     QRect computeGridRect() const;
     QRect columnRect(int columnIndex, const QRect &gridRect) const;
     int columnIndexAt(int x, const QRect &gridRect) const;
     int hitTestEvent(const QPoint &pos) const;
+    const HitEvent *hitTestFull(const QPoint &pos) const;
+
+    // Куда попадёт перетаскиваемое событие, если отпустить мышь прямо
+    // сейчас, в позиции mousePos - общая логика и для превью во время
+    // drag (paintDragPreview), и для применения результата в
+    // mouseReleaseEvent, чтобы то, что нарисовано, совпадало с тем,
+    // что реально произойдёт. Версия для перемещения (дата+начало,
+    // длительность сохраняется) и версия для resize (только конец,
+    // дата и начало не меняются) - два разных режима взаимодействия,
+    // см. InteractionMode ниже.
+    void computeDragTarget(const QPoint &mousePos, QDate &outDate, QTime &outStart, QTime &outEnd) const;
+    void computeResizeTarget(const QPoint &mousePos, QTime &outEnd) const;
 
     int timeToY(const QTime &time) const;
     QTime yToTime(int y) const;
@@ -105,6 +128,8 @@ private:
     static constexpr int kGutterWidth = 52;
     static constexpr int kSnapMinutes = 15;
     static constexpr int kZoomStepPerNotch = 8;
+    static constexpr int kDragThresholdPx = 6; // сколько нужно сдвинуть мышь, чтобы клик считался перетаскиванием/resize
+    static constexpr int kResizeEdgePx = 8;    // толщина "ручки" resize у нижнего края блока события
 
     QVector<QDate> m_columnDates;
     QVector<QVector<Event>> m_eventsByColumn; // тот же порядок, что m_columnDates
@@ -115,4 +140,20 @@ private:
     // Прямоугольники всех сейчас отрисованных событий - для hit-testing
     // клика, пересчитываются заново в paintEvents() на каждой перерисовке.
     QVector<HitEvent> m_eventHitRects;
+
+    // Состояние взаимодействия мышью (MVP2, drag & drop + resize).
+    // InteractionMode выбирается в mousePressEvent() по тому, в какую зону
+    // блока события попал клик (нижние kResizeEdgePx пикселей - Resizing,
+    // остальное - Moving); None - обычный клик/пустое место, ничего не тащим.
+    // Реально "тащим" (и это видно превью) только после того, как мышь
+    // сдвинулась больше чем на kDragThresholdPx (m_dragThresholdExceeded) -
+    // иначе обычный клик по событию выглядел бы как микро-перетаскивание
+    // и норовил бы сдвинуть/сжать событие на пару пикселей.
+    enum class InteractionMode { None, Moving, Resizing };
+    InteractionMode m_interactionMode = InteractionMode::None;
+    bool m_dragThresholdExceeded = false;
+    Event m_draggedEvent;      // снимок события на момент начала взаимодействия - оригинальные date/start/end
+    QPoint m_dragPressPos;     // позиция мыши в момент mousePressEvent - точка отсчёта для порога
+    QPoint m_dragGrabOffset;   // где внутри блока события "схватили" (для Moving) - чтобы блок не прыгал под курсор
+    QPoint m_dragCurrentPos;   // текущая позиция мыши во время взаимодействия - для отрисовки превью
 };

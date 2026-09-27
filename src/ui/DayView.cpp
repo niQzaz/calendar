@@ -24,6 +24,7 @@ DayView::DayView(QWidget *parent)
 
     connect(m_grid, &TimeGridView::createEventRequested, this, &DayView::createEventRequested);
     connect(m_grid, &TimeGridView::editEventRequested, this, &DayView::editEventRequested);
+    connect(m_grid, &TimeGridView::eventRescheduled, this, &DayView::eventRescheduled);
 
     rebuildColumnDate();
 

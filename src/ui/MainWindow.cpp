@@ -134,6 +134,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_calendarView, &CalendarView::createEventRequested, this, &MainWindow::onCreateEventRequested);
     connect(m_calendarView, &CalendarView::createEventRequestedWithTime, this, &MainWindow::onCreateEventRequestedWithTime);
     connect(m_calendarView, &CalendarView::editEventRequested, this, &MainWindow::onEditEventRequested);
+    connect(m_calendarView, &CalendarView::eventRescheduled, this, &MainWindow::onEventRescheduled);
     connect(m_calendarView, &CalendarView::viewModeChanged, this, &MainWindow::onCalendarViewModeChanged);
 
     // Инициализируем правую панель для дня, который CalendarView
@@ -282,6 +283,27 @@ void MainWindow::onCreateEventRequestedWithTime(const QDate &date, const QTime &
 void MainWindow::onEditEventRequested(int eventId)
 {
     openEditEventDialog(eventId);
+}
+
+void MainWindow::onEventRescheduled(int eventId, const QDate &newDate, const QTime &newStartTime, const QTime &newEndTime)
+{
+    // TimeGridView уже отфильтровал повторяющиеся события сам (не начинает
+    // для них drag), так что eventById() здесь всегда должен найти именно
+    // ту единственную запись в БД, которую и нужно подвинуть - не шаблон
+    // серии и не какое-то отдельное "вхождение".
+    Event event;
+    if (!m_eventManager.eventById(eventId, event))
+        return; // событие успели удалить, пока тащили - просто ничего не делаем
+
+    event.date = newDate;
+    event.startTime = newStartTime;
+    event.endTime = newEndTime;
+
+    if (!m_eventManager.updateEvent(event))
+        return;
+
+    refreshEventsList();
+    refreshCalendarMarkers();
 }
 
 void MainWindow::onStartPomodoroClicked()
