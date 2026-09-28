@@ -162,6 +162,25 @@ EventManager::EventManager(const QString &databasePath, const QString &connectio
         qWarning() << "Failed to create categories table:" << query.lastError().text();
     }
 
+    // Execution (MVP 3.0) - по одной строке максимум на (event_id,
+    // occurrence_date), см. models/Execution.h за подробным объяснением,
+    // почему это отдельная таблица, а не колонки в events. Без FK -
+    // та же причина, что и у categories; ссылочная целостность
+    // поддерживается вручную в removeEvent() (см. ниже).
+    if (!query.exec(
+        "CREATE TABLE IF NOT EXISTS event_executions ("
+        "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  event_id INTEGER NOT NULL,"
+        "  occurrence_date TEXT NOT NULL,"
+        "  status TEXT NOT NULL DEFAULT 'planned',"
+        "  actual_start TEXT,"
+        "  actual_end TEXT,"
+        "  UNIQUE(event_id, occurrence_date)"
+        ")"
+    )) {
+        qWarning() << "Failed to create event_executions table:" << query.lastError().text();
+    }
+
     // Миграция для баз, созданных в более ранних этапах: собираем список
     // уже существующих колонок и добавляем те, которых не хватает.
     // Для новой (только что созданной) базы этот цикл ничего не делает -
@@ -265,6 +284,15 @@ bool EventManager::updateEvent(const Event &event)
 bool EventManager::removeEvent(int id)
 {
     QSqlQuery query(QSqlDatabase::database(m_connectionName));
+
+    // Сначала убираем execution-записи этого события (MVP3.0) - иначе
+    // они останутся сиротами в event_executions после удаления события
+    // (тот же принцип, что и очистка category_id в removeCategory()).
+    query.prepare("DELETE FROM event_executions WHERE event_id = :id");
+    query.bindValue(":id", id);
+    if (!query.exec())
+        qWarning() << "Failed to clear executions before delete:" << query.lastError().text();
+
     query.prepare("DELETE FROM events WHERE id = :id");
     query.bindValue(":id", id);
 
@@ -529,4 +557,106 @@ QVector<Category> EventManager::allCategories() const
     }
 
     return result;
+}
+
+bool EventManager::executionForOccurrence(int eventId, const QDate &occurrenceDate, EventExecution &outExecution) const
+{
+    QSqlQuery query(QSqlDatabase::database(m_connectionName));
+    query.prepare("SELECT * FROM event_executions WHERE event_id = :event_id AND occurrence_date = :occurrence_date");
+    query.bindValue(":event_id", eventId);
+    query.bindValue(":occurrence_date", occurrenceDate.toString(Qt::ISODate));
+
+    if (!query.exec() || !query.next())
+        return false;
+
+    outExecution.id = query.value("id").toInt();
+    outExecution.eventId = query.value("event_id").toInt();
+    outExecution.occurrenceDate = QDate::fromString(query.value("occurrence_date").toString(), Qt::ISODate);
+    outExecution.status = executionStatusFromString(query.value("status").toString());
+
+    const QString actualStartStr = query.value("actual_start").toString();
+    outExecution.actualStart = actualStartStr.isEmpty()
+        ? QDateTime() : QDateTime::fromString(actualStartStr, Qt::ISODate);
+
+    const QString actualEndStr = query.value("actual_end").toString();
+    outExecution.actualEnd = actualEndStr.isEmpty()
+        ? QDateTime() : QDateTime::fromString(actualEndStr, Qt::ISODate);
+
+    return true;
+}
+
+bool EventManager::upsertExecution(const EventExecution &execution)
+{
+    QSqlQuery query(QSqlDatabase::database(m_connectionName));
+
+    // INSERT OR REPLACE полагается на UNIQUE(event_id, occurrence_date) -
+    // существующая строка (если была) удаляется и вставляется заново
+    // целиком; execution.id при этом не сохраняется (у replaced-строки
+    // будет новый id), но нигде за пределами этого класса id execution-
+    // записи не используется, так что это не проблема.
+    query.prepare(
+        "INSERT OR REPLACE INTO event_executions "
+        "(event_id, occurrence_date, status, actual_start, actual_end) "
+        "VALUES (:event_id, :occurrence_date, :status, :actual_start, :actual_end)"
+    );
+    query.bindValue(":event_id", execution.eventId);
+    query.bindValue(":occurrence_date", execution.occurrenceDate.toString(Qt::ISODate));
+    query.bindValue(":status", executionStatusToString(execution.status));
+    query.bindValue(":actual_start",
+        execution.actualStart.isValid() ? QVariant(execution.actualStart.toString(Qt::ISODate)) : QVariant());
+    query.bindValue(":actual_end",
+        execution.actualEnd.isValid() ? QVariant(execution.actualEnd.toString(Qt::ISODate)) : QVariant());
+
+    if (!query.exec()) {
+        qWarning() << "Failed to save execution state:" << query.lastError().text();
+        return false;
+    }
+
+    return true;
+}
+
+bool EventManager::startOccurrence(int eventId, const QDate &occurrenceDate, const QDateTime &startedAt)
+{
+    EventExecution execution;
+    execution.eventId = eventId;
+    execution.occurrenceDate = occurrenceDate;
+    execution.status = ExecutionStatus::Running;
+    execution.actualStart = startedAt;
+    // actualEnd остаётся невалидным - вхождение ещё не завершено.
+    return upsertExecution(execution);
+}
+
+bool EventManager::completeOccurrence(int eventId, const QDate &occurrenceDate, const QDateTime &completedAt)
+{
+    EventExecution existing;
+    const bool hasExisting = executionForOccurrence(eventId, occurrenceDate, existing);
+
+    EventExecution execution;
+    execution.eventId = eventId;
+    execution.occurrenceDate = occurrenceDate;
+    execution.status = ExecutionStatus::Completed;
+
+    if (hasExisting && existing.actualStart.isValid()) {
+        // Было startOccurrence() до этого - "Track actual time" (раздел 4):
+        // actualStart уже зафиксирован, теперь фиксируем и actualEnd.
+        execution.actualStart = existing.actualStart;
+        execution.actualEnd = completedAt;
+    }
+    // Иначе - "Manual completion" (раздел 4): Complete нажали без
+    // предварительного Start, actualStart/actualEnd остаются невалидными.
+
+    return upsertExecution(execution);
+}
+
+ExecutionStatus EventManager::effectiveStatus(int eventId, const QDate &occurrenceDate,
+                                               const QTime &plannedStart, const QTime &plannedEnd,
+                                               const QDateTime &now, int gracePeriodMinutes) const
+{
+    EventExecution execution;
+    const bool hasExecution = executionForOccurrence(eventId, occurrenceDate, execution);
+    return resolveExecutionStatus(
+        occurrenceDate, plannedStart, plannedEnd,
+        hasExecution ? &execution : nullptr,
+        now, gracePeriodMinutes
+    );
 }

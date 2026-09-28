@@ -15,6 +15,7 @@
 
 #include "services/EventManager.h"
 #include "models/Category.h"
+#include "models/Execution.h"
 
 class TestEventManager : public QObject
 {
@@ -57,6 +58,16 @@ private slots:
     void eventById_includesCategoryNameAndColorViaJoin();
     void eventById_hasEmptyCategoryFieldsWhenUncategorized();
     void eventsInRange_includesCategoryColorForRecurringOccurrence();
+
+    // --- Execution (MVP 3.0) ---
+    void executionForOccurrence_returnsFalseWhenNoAction();
+    void startOccurrence_createsRunningExecutionWithActualStart();
+    void completeOccurrence_afterStart_setsCompletedWithActualEnd();
+    void completeOccurrence_withoutStart_setsCompletedWithoutActualTimes();
+    void effectiveStatus_isMissedPastGracePeriodWithNoAction();
+    void effectiveStatus_startedTaskDoesNotBecomeMissedPastPlannedEnd();
+    void recurringEvent_occurrencesTrackExecutionIndependently();
+    void removeEvent_alsoRemovesItsExecutionRecords();
 
 private:
     EventManager *m_manager = nullptr;
@@ -539,6 +550,180 @@ void TestEventManager::eventsInRange_includesCategoryColorForRecurringOccurrence
         QCOMPARE(occurrence.categoryName, QStringLiteral("Health"));
         QCOMPARE(occurrence.categoryColor, QStringLiteral("#4AD97A"));
     }
+}
+
+void TestEventManager::executionForOccurrence_returnsFalseWhenNoAction()
+{
+    Event event;
+    event.title = QStringLiteral("Untouched");
+    event.date = QDate(2026, 9, 21);
+    event.startTime = QTime(9, 0);
+    event.endTime = QTime(10, 0);
+    const int eventId = m_manager->addEvent(event);
+    QVERIFY(eventId > 0);
+
+    EventExecution execution;
+    QVERIFY(!m_manager->executionForOccurrence(eventId, event.date, execution));
+}
+
+void TestEventManager::startOccurrence_createsRunningExecutionWithActualStart()
+{
+    Event event;
+    event.title = QStringLiteral("Deep work");
+    event.date = QDate(2026, 9, 21);
+    event.startTime = QTime(9, 0);
+    event.endTime = QTime(10, 0);
+    const int eventId = m_manager->addEvent(event);
+    QVERIFY(eventId > 0);
+
+    const QDateTime startedAt(event.date, QTime(9, 5));
+    QVERIFY(m_manager->startOccurrence(eventId, event.date, startedAt));
+
+    EventExecution execution;
+    QVERIFY(m_manager->executionForOccurrence(eventId, event.date, execution));
+    QCOMPARE(execution.status, ExecutionStatus::Running);
+    QCOMPARE(execution.actualStart, startedAt);
+    QVERIFY(!execution.actualEnd.isValid());
+}
+
+void TestEventManager::completeOccurrence_afterStart_setsCompletedWithActualEnd()
+{
+    Event event;
+    event.title = QStringLiteral("Deep work");
+    event.date = QDate(2026, 9, 21);
+    event.startTime = QTime(9, 0);
+    event.endTime = QTime(10, 0);
+    const int eventId = m_manager->addEvent(event);
+
+    const QDateTime startedAt(event.date, QTime(9, 5));
+    const QDateTime completedAt(event.date, QTime(9, 50));
+    QVERIFY(m_manager->startOccurrence(eventId, event.date, startedAt));
+    QVERIFY(m_manager->completeOccurrence(eventId, event.date, completedAt));
+
+    EventExecution execution;
+    QVERIFY(m_manager->executionForOccurrence(eventId, event.date, execution));
+    QCOMPARE(execution.status, ExecutionStatus::Completed);
+    QCOMPARE(execution.actualStart, startedAt);   // сохранённое ранее начало не потерялось
+    QCOMPARE(execution.actualEnd, completedAt);
+
+    qint64 durationSeconds = 0;
+    QVERIFY(actualDurationSeconds(execution, durationSeconds));
+    QCOMPARE(durationSeconds, static_cast<qint64>(45 * 60));
+}
+
+void TestEventManager::completeOccurrence_withoutStart_setsCompletedWithoutActualTimes()
+{
+    // "Manual completion" (раздел 4) - Complete нажали напрямую, без
+    // предварительного Start.
+    Event event;
+    event.title = QStringLiteral("Quick task");
+    event.date = QDate(2026, 9, 21);
+    event.startTime = QTime(9, 0);
+    event.endTime = QTime(9, 15);
+    const int eventId = m_manager->addEvent(event);
+
+    QVERIFY(m_manager->completeOccurrence(eventId, event.date, QDateTime(event.date, QTime(9, 10))));
+
+    EventExecution execution;
+    QVERIFY(m_manager->executionForOccurrence(eventId, event.date, execution));
+    QCOMPARE(execution.status, ExecutionStatus::Completed);
+    QVERIFY(!execution.actualStart.isValid());
+    QVERIFY(!execution.actualEnd.isValid());
+}
+
+void TestEventManager::effectiveStatus_isMissedPastGracePeriodWithNoAction()
+{
+    Event event;
+    event.title = QStringLiteral("Forgotten task");
+    event.date = QDate(2026, 9, 21);
+    event.startTime = QTime(9, 0);
+    event.endTime = QTime(10, 0);
+    const int eventId = m_manager->addEvent(event);
+
+    // "Сейчас" - на 2 часа позже planned end (значительно больше grace
+    // по умолчанию в 60 минут). effectiveStatus() принимает now параметром,
+    // так что тест не зависит от реального времени на машине, где он идёт.
+    const QDateTime farInTheFuture(event.date, QTime(12, 0));
+
+    QCOMPARE(
+        m_manager->effectiveStatus(eventId, event.date, event.startTime, event.endTime, farInTheFuture),
+        ExecutionStatus::Missed
+    );
+}
+
+void TestEventManager::effectiveStatus_startedTaskDoesNotBecomeMissedPastPlannedEnd()
+{
+    // То же самое требование раздела 5, что и в test_execution.cpp, но
+    // теперь сквозь весь стек EventManager (реальная запись/чтение из
+    // SQLite), а не только через чистую функцию resolveExecutionStatus().
+    Event event;
+    event.title = QStringLiteral("Long meeting");
+    event.date = QDate(2026, 9, 21);
+    event.startTime = QTime(9, 0);
+    event.endTime = QTime(10, 0);
+    const int eventId = m_manager->addEvent(event);
+
+    QVERIFY(m_manager->startOccurrence(eventId, event.date, QDateTime(event.date, QTime(9, 5))));
+
+    const QDateTime farInTheFuture(event.date.addDays(1), QTime(9, 0));
+    QCOMPARE(
+        m_manager->effectiveStatus(eventId, event.date, event.startTime, event.endTime, farInTheFuture),
+        ExecutionStatus::Running
+    );
+}
+
+void TestEventManager::recurringEvent_occurrencesTrackExecutionIndependently()
+{
+    // Смысл всей таблицы event_executions с ключом (event_id, occurrence_date) -
+    // именно в этом: Start одного понедельника не должен затрагивать другой
+    // понедельник ТОЙ ЖЕ серии.
+    Event weekly;
+    weekly.title = QStringLiteral("Weekly standup");
+    weekly.date = QDate(2026, 9, 21); // первый понедельник (якорь серии)
+    weekly.startTime = QTime(9, 0);
+    weekly.endTime = QTime(9, 15);
+    weekly.recurrenceType = RecurrenceType::Weekly;
+    const int eventId = m_manager->addEvent(weekly);
+    QVERIFY(eventId > 0);
+
+    const QDate firstMonday(2026, 9, 21);
+    const QDate secondMonday(2026, 9, 28);
+
+    QVERIFY(m_manager->startOccurrence(eventId, firstMonday, QDateTime(firstMonday, QTime(9, 2))));
+
+    // Первый понедельник - Running...
+    EventExecution firstExecution;
+    QVERIFY(m_manager->executionForOccurrence(eventId, firstMonday, firstExecution));
+    QCOMPARE(firstExecution.status, ExecutionStatus::Running);
+
+    // ...а второй, того же самого event_id - как будто ничего не произошло.
+    EventExecution secondExecution;
+    QVERIFY(!m_manager->executionForOccurrence(eventId, secondMonday, secondExecution));
+    QCOMPARE(
+        m_manager->effectiveStatus(eventId, secondMonday, weekly.startTime, weekly.endTime,
+                                    QDateTime(secondMonday, QTime(9, 5))),
+        ExecutionStatus::Planned
+    );
+}
+
+void TestEventManager::removeEvent_alsoRemovesItsExecutionRecords()
+{
+    Event event;
+    event.title = QStringLiteral("To be deleted");
+    event.date = QDate(2026, 9, 21);
+    event.startTime = QTime(9, 0);
+    event.endTime = QTime(10, 0);
+    const int eventId = m_manager->addEvent(event);
+
+    QVERIFY(m_manager->startOccurrence(eventId, event.date, QDateTime(event.date, QTime(9, 5))));
+
+    EventExecution beforeDelete;
+    QVERIFY(m_manager->executionForOccurrence(eventId, event.date, beforeDelete)); // убедились, что запись реально есть
+
+    QVERIFY(m_manager->removeEvent(eventId));
+
+    EventExecution afterDelete;
+    QVERIFY(!m_manager->executionForOccurrence(eventId, event.date, afterDelete)); // не осталось сиротой
 }
 
 QTEST_MAIN(TestEventManager)

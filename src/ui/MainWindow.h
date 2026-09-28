@@ -40,6 +40,8 @@ private slots:
     void onEventDoubleClicked(QListWidgetItem *item);
     void onStartPomodoroClicked();
     void onPomodoroCompletedForEvent(int eventId);
+    void onStartTaskClicked();
+    void onCompleteTaskClicked();
     void onImportCsvClicked();
     void onVisibleRangeChanged(const QDate &start, const QDate &end);
     void onSettingsClicked();
@@ -70,6 +72,15 @@ private:
     QPushButton *m_addEventButton = nullptr;
     QPushButton *m_deleteEventButton = nullptr;
     QPushButton *m_startPomodoroButton = nullptr;
+
+    // MVP 3.0 - Task Execution Foundation: минимальный технический UI,
+    // чтобы проверить механизм Start/Complete (раздел 7 - полноценный
+    // NOW screen оставлен для следующего шага). Работают с тем же
+    // выбранным элементом m_eventsList, что и остальные кнопки этой
+    // панели - см. onEventSelectionChanged().
+    QPushButton *m_startTaskButton = nullptr;
+    QPushButton *m_completeTaskButton = nullptr;
+    QLabel *m_taskStatusLabel = nullptr;
     PomodoroWidget *m_pomodoro = nullptr;
     NotificationService *m_notificationService = nullptr;
     EventReminder *m_eventReminder = nullptr;

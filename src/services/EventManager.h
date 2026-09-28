@@ -2,6 +2,7 @@
 
 #include "models/Event.h"
 #include "models/Category.h"
+#include "models/Execution.h"
 
 #include <QVector>
 #include <QSet>
@@ -101,11 +102,56 @@ public:
     // Все категории, отсортированные по имени - для выпадающих списков в UI.
     QVector<Category> allCategories() const;
 
+    // --- Execution (MVP 3.0, Task Execution Foundation) ---
+    // Учёт фактического выполнения ОДНОГО КОНКРЕТНОГО вхождения задачи -
+    // см. models/Execution.h за ExecutionStatus/EventExecution и чистыми
+    // функциями расчёта (resolveExecutionStatus, *DeviationSeconds).
+    // Хранится в отдельной таблице event_executions, максимум по одной
+    // строке на (event_id, occurrence_date) - для разового события это
+    // всегда одна и та же дата; для повторяющегося - у каждого конкретного
+    // вхождения своя независимая запись, создаётся лениво (только когда
+    // пользователь реально нажал Start/Complete по этому вхождению),
+    // НЕ заранее на каждое будущее вхождение серии.
+
+    // Сохранённая execution-запись для вхождения, если она есть.
+    // false, если по этому вхождению ещё не было никаких действий -
+    // это НЕ ошибка, эффективный статус в таком случае - Planned/Missed,
+    // см. effectiveStatus() ниже.
+    bool executionForOccurrence(int eventId, const QDate &occurrenceDate, EventExecution &outExecution) const;
+
+    // Отмечает вхождение начатым: status=Running, actualStart=startedAt.
+    bool startOccurrence(int eventId, const QDate &occurrenceDate, const QDateTime &startedAt);
+
+    // Отмечает вхождение завершённым: status=Completed. Если до этого было
+    // startOccurrence() (actualStart уже сохранён) - фиксирует actualEnd
+    // тоже ("Track actual time", раздел 4); если Complete нажали без
+    // предварительного Start - actualStart/actualEnd остаются невалидными
+    // ("Manual completion", раздел 4). Это не отдельная настройка - просто
+    // то, нажимал ли пользователь Start до этого или нет.
+    bool completeOccurrence(int eventId, const QDate &occurrenceDate, const QDateTime &completedAt);
+
+    // Эффективный статус вхождения ПРЯМО СЕЙЧАС - объединяет сохранённое
+    // состояние (если есть) с grace period и текущим моментом через
+    // resolveExecutionStatus(). НЕ пишет ничего в БД - см. calendar_project_
+    // context_v1.md, раздел 6 ("не делать автоматическое изменение
+    // состояния только по таймеру UI"): вызывающий код может дёргать этот
+    // метод сколько угодно раз для обновления отображения, база при этом
+    // не трогается.
+    ExecutionStatus effectiveStatus(int eventId, const QDate &occurrenceDate,
+                                     const QTime &plannedStart, const QTime &plannedEnd,
+                                     const QDateTime &now,
+                                     int gracePeriodMinutes = kDefaultGracePeriodMinutes) const;
+
 private:
     // Загружает все события с recurrence_type != 'none' - их всегда немного
     // (это шаблоны, а не отдельные повторения), поэтому дальше с ними
     // работаем в памяти через eventOccursOnDate(), а не через SQL.
     QVector<Event> allRecurringTemplates() const;
+
+    // INSERT OR REPLACE в event_executions по (event_id, occurrence_date) -
+    // общая часть startOccurrence()/completeOccurrence(), у обоих одна
+    // и та же операция "записать/перезаписать execution-запись целиком".
+    bool upsertExecution(const EventExecution &execution);
 
     QString m_connectionName;
 };

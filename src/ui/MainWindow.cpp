@@ -8,6 +8,7 @@
 #include "services/NotificationService.h"
 #include "services/EventReminder.h"
 #include "services/ThemeManager.h"
+#include "models/Execution.h"
 
 #include <QListWidget>
 #include <QListWidgetItem>
@@ -98,12 +99,26 @@ MainWindow::MainWindow(QWidget *parent)
     m_startPomodoroButton->setObjectName("panelButton");
     m_startPomodoroButton->setEnabled(false);
 
+    // MVP 3.0 - Task Execution Foundation (минимальный технический UI,
+    // см. комментарий у объявления в MainWindow.h).
+    m_startTaskButton = new QPushButton("Start", m_rightPanel);
+    m_startTaskButton->setObjectName("panelButton");
+    m_startTaskButton->setEnabled(false);
+    m_completeTaskButton = new QPushButton("Complete", m_rightPanel);
+    m_completeTaskButton->setObjectName("panelButton");
+    m_completeTaskButton->setEnabled(false);
+    m_taskStatusLabel = new QLabel(m_rightPanel);
+    m_taskStatusLabel->setObjectName("hintLabel");
+
     rightLayout->addWidget(m_selectedDateLabel);
     rightLayout->addWidget(m_eventsList, 1);
     rightLayout->addWidget(hintLabel);
     rightLayout->addWidget(m_addEventButton);
     rightLayout->addWidget(m_deleteEventButton);
     rightLayout->addWidget(m_startPomodoroButton);
+    rightLayout->addWidget(m_startTaskButton);
+    rightLayout->addWidget(m_completeTaskButton);
+    rightLayout->addWidget(m_taskStatusLabel);
 
     auto *splitter = new QSplitter(this);
     splitter->addWidget(m_calendarView);
@@ -129,6 +144,8 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_eventsList, &QListWidget::itemSelectionChanged, this, &MainWindow::onEventSelectionChanged);
     connect(m_eventsList, &QListWidget::itemDoubleClicked, this, &MainWindow::onEventDoubleClicked);
     connect(m_startPomodoroButton, &QPushButton::clicked, this, &MainWindow::onStartPomodoroClicked);
+    connect(m_startTaskButton, &QPushButton::clicked, this, &MainWindow::onStartTaskClicked);
+    connect(m_completeTaskButton, &QPushButton::clicked, this, &MainWindow::onCompleteTaskClicked);
     connect(m_pomodoro, &PomodoroWidget::pomodoroCompletedForEvent, this, &MainWindow::onPomodoroCompletedForEvent);
     connect(m_calendarView, &CalendarView::visibleRangeChanged, this, &MainWindow::onVisibleRangeChanged);
     connect(m_calendarView, &CalendarView::createEventRequested, this, &MainWindow::onCreateEventRequested);
@@ -158,6 +175,7 @@ void MainWindow::refreshEventsList()
 
     const QDate date = m_calendarView->selectedDate();
     const QVector<Event> events = m_eventManager.eventsForDate(date);
+    const QDateTime now = QDateTime::currentDateTime();
 
     for (const Event &event : events) {
         QString text = QString("%1 - %2   %3")
@@ -172,6 +190,22 @@ void MainWindow::refreshEventsList()
         if (!recurrence.isEmpty())
             text += QString("   \xE2\x86\xBB %1").arg(recurrence); // ↻ значок повтора
 
+        // MVP 3.0 - execution status. Ничего не пишет в БД - effectiveStatus()
+        // только читает сохранённое состояние (если есть) и текущее время.
+        // Planned - самый частый случай (ничего ещё не произошло), поэтому
+        // для него бейдж не показываем - не загромождать список пометкой
+        // "и так понятного по умолчанию" состояния.
+        const ExecutionStatus status = m_eventManager.effectiveStatus(
+            event.id, event.date, event.startTime, event.endTime, now);
+        switch (status) {
+        case ExecutionStatus::Running:   text += "   \xE2\x8F\xB1 Running"; break;   // ⏱
+        case ExecutionStatus::Completed: text += "   \xE2\x9C\x93 Done"; break;      // ✓
+        case ExecutionStatus::Missed:    text += "   \xE2\x9A\xA0 Missed"; break;    // ⚠
+        case ExecutionStatus::Postponed: text += "   \xE2\x86\xAA Postponed"; break; // ↪ (не выставляется UI пока - раздел 8)
+        case ExecutionStatus::Cancelled: text += "   \xE2\x9C\x97 Cancelled"; break;  // ✗ (не выставляется UI пока)
+        case ExecutionStatus::Planned:   break;
+        }
+
         auto *item = new QListWidgetItem(text, m_eventsList);
         item->setData(Qt::UserRole, event.id);
         if (!event.description.isEmpty())
@@ -180,6 +214,9 @@ void MainWindow::refreshEventsList()
 
     m_deleteEventButton->setEnabled(false);
     m_startPomodoroButton->setEnabled(false);
+    m_startTaskButton->setEnabled(false);
+    m_completeTaskButton->setEnabled(false);
+    m_taskStatusLabel->clear();
 }
 
 void MainWindow::refreshCalendarMarkers()
@@ -244,9 +281,70 @@ void MainWindow::openNewEventDialog(const QDate &defaultDate, const QTime &defau
 
 void MainWindow::onEventSelectionChanged()
 {
-    const bool hasSelection = !m_eventsList->selectedItems().isEmpty();
+    QListWidgetItem *item = m_eventsList->currentItem();
+    const bool hasSelection = item != nullptr;
     m_deleteEventButton->setEnabled(hasSelection);
     m_startPomodoroButton->setEnabled(hasSelection);
+
+    if (!hasSelection) {
+        m_startTaskButton->setEnabled(false);
+        m_completeTaskButton->setEnabled(false);
+        m_taskStatusLabel->clear();
+        return;
+    }
+
+    Event event;
+    if (!m_eventManager.eventById(item->data(Qt::UserRole).toInt(), event)) {
+        m_startTaskButton->setEnabled(false);
+        m_completeTaskButton->setEnabled(false);
+        m_taskStatusLabel->clear();
+        return;
+    }
+
+    // Вхождение - та же дата, что сейчас выбрана в календаре: весь список
+    // m_eventsList всегда наполняется для одной конкретной даты (см.
+    // refreshEventsList()), так что дата события из БД тут не подходит
+    // напрямую для повторяющегося события (event.date после eventById() -
+    // это дата ЯКОРЯ серии, а не текущего вхождения).
+    const QDate occurrenceDate = m_calendarView->selectedDate();
+    const QDateTime now = QDateTime::currentDateTime();
+    const ExecutionStatus status = m_eventManager.effectiveStatus(
+        event.id, occurrenceDate, event.startTime, event.endTime, now);
+
+    // Start доступен, пока ничего не завершено/не отменено/не перенесено -
+    // включая Missed (реально сделать позже пропущенного окна - нормальный
+    // сценарий, "лучше поздно, чем никогда"), но не повторно для Running.
+    m_startTaskButton->setEnabled(status == ExecutionStatus::Planned || status == ExecutionStatus::Missed);
+    // Complete доступен из Planned/Running/Missed - оба пути раздела 4
+    // (с предварительным Start и без).
+    m_completeTaskButton->setEnabled(
+        status == ExecutionStatus::Planned || status == ExecutionStatus::Running || status == ExecutionStatus::Missed);
+
+    switch (status) {
+    case ExecutionStatus::Planned:
+        m_taskStatusLabel->setText("Not started yet");
+        break;
+    case ExecutionStatus::Running: {
+        EventExecution execution;
+        QString since;
+        if (m_eventManager.executionForOccurrence(event.id, occurrenceDate, execution) && execution.actualStart.isValid())
+            since = QString(" (since %1)").arg(execution.actualStart.toString("HH:mm"));
+        m_taskStatusLabel->setText("Running" + since);
+        break;
+    }
+    case ExecutionStatus::Completed:
+        m_taskStatusLabel->setText("Completed");
+        break;
+    case ExecutionStatus::Missed:
+        m_taskStatusLabel->setText("Missed");
+        break;
+    case ExecutionStatus::Postponed:
+        m_taskStatusLabel->setText("Postponed");
+        break;
+    case ExecutionStatus::Cancelled:
+        m_taskStatusLabel->setText("Cancelled");
+        break;
+    }
 }
 
 void MainWindow::onEventDoubleClicked(QListWidgetItem *item)
@@ -329,6 +427,32 @@ void MainWindow::onStartPomodoroClicked()
 void MainWindow::onPomodoroCompletedForEvent(int eventId)
 {
     m_eventManager.incrementPomodoroCount(eventId);
+    refreshEventsList();
+}
+
+void MainWindow::onStartTaskClicked()
+{
+    QListWidgetItem *item = m_eventsList->currentItem();
+    if (!item)
+        return;
+
+    const int eventId = item->data(Qt::UserRole).toInt();
+    const QDate occurrenceDate = m_calendarView->selectedDate(); // см. onEventSelectionChanged()
+
+    m_eventManager.startOccurrence(eventId, occurrenceDate, QDateTime::currentDateTime());
+    refreshEventsList();
+}
+
+void MainWindow::onCompleteTaskClicked()
+{
+    QListWidgetItem *item = m_eventsList->currentItem();
+    if (!item)
+        return;
+
+    const int eventId = item->data(Qt::UserRole).toInt();
+    const QDate occurrenceDate = m_calendarView->selectedDate();
+
+    m_eventManager.completeOccurrence(eventId, occurrenceDate, QDateTime::currentDateTime());
     refreshEventsList();
 }
 

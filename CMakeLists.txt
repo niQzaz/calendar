@@ -19,6 +19,8 @@ add_executable(QtCalendarApp
     src/models/Event.h
     src/models/Event.cpp
     src/models/Category.h
+    src/models/Execution.h
+    src/models/Execution.cpp
     src/services/EventManager.h
     src/services/EventManager.cpp
     src/services/PomodoroTimer.h
