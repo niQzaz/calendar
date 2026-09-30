@@ -4,6 +4,9 @@
 #include <QDate>
 #include <QTime>
 #include <QDateTime>
+#include <QVector>
+
+#include "Event.h"
 
 // MVP 3.0 - Task Execution Foundation.
 //
@@ -105,3 +108,51 @@ bool startDeviationSeconds(const QDate &occurrenceDate, const QTime &plannedStar
 // (положительное - выполнял дольше, чем планировал).
 bool durationDeviationSeconds(const QTime &plannedStart, const QTime &plannedEnd,
                                const EventExecution &execution, qint64 &outSeconds);
+
+// --- NOW screen (продолжение MVP 3 после MVP 3.0) ---
+//
+// Событие (одно конкретное вхождение, как их отдаёт EventManager) вместе
+// с уже вычисленным для него эффективным статусом и самой сохранённой
+// execution-записью (если она есть - иначе execution остаётся "пустой",
+// EventExecution() по умолчанию, actualStart/actualEnd невалидны).
+// execution нужен здесь же, а не только status, чтобы UI мог посчитать
+// deviation (startDeviationSeconds/durationDeviationSeconds) не делая
+// отдельный поход в БД - EventManager собирает такие пары через
+// nowSnapshot(), а функции ниже уже просто выбирают среди готовых пар,
+// сами в БД не лазят.
+struct EventWithStatus
+{
+    Event event;
+    ExecutionStatus status = ExecutionStatus::Planned;
+    EventExecution execution;
+};
+
+// "Снимок" состояния на конкретный день - см. EventManager::nowSnapshot().
+// allForDate нужен для краткой сводки дня ("сколько сделано/пропущено") -
+// см. раздел 2 Product Context, "краткое состояние дня".
+struct NowSnapshot
+{
+    bool hasCurrent = false;
+    EventWithStatus current;
+    bool hasNext = false;
+    EventWithStatus next;
+    QVector<EventWithStatus> allForDate;
+};
+
+// Среди событий дня (уже с резолвнутым статусом) выбирает то, что
+// считается "текущей задачей" прямо сейчас. Приоритет:
+// 1) любое событие со статусом Running - явное действие пользователя
+//    всегда важнее вычисленного по времени состояния;
+// 2) иначе - событие, чьё плановое окно [start, end] содержит now,
+//    и статус которого ещё "живой" (Planned/Missed - Completed/Cancelled/
+//    Postponed не считаются текущими, даже если их старое окно накрывает now).
+// false, если ничего не подходит - вызывающий код должен показать
+// "сейчас ничего не запланировано", а не считать это ошибкой.
+bool findCurrentTask(const QVector<EventWithStatus> &todaysEvents, const QTime &now, EventWithStatus &outCurrent);
+
+// Среди событий дня выбирает ближайшее по startTime, которое ещё не
+// наступило (startTime > now), не завершено/не отменено, и не совпадает
+// с current (если он есть - current не должен одновременно быть "следующим").
+// false, если на сегодня больше ничего не осталось.
+bool findNextTask(const QVector<EventWithStatus> &todaysEvents, const QTime &now,
+                   const EventWithStatus *current, EventWithStatus &outNext);

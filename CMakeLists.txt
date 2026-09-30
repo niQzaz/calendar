@@ -41,6 +41,8 @@ add_executable(QtCalendarApp
     src/ui/CalendarView.h
     src/ui/CalendarView.cpp
     src/ui/ICalendarPage.h
+    src/ui/NowView.h
+    src/ui/NowView.cpp
     src/ui/MonthView.h
     src/ui/MonthView.cpp
     src/ui/WeekView.h

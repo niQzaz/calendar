@@ -22,6 +22,7 @@
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QMap>
+#include <QTimer>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -161,6 +162,18 @@ MainWindow::MainWindow(QWidget *parent)
     m_visibleRangeEnd = m_calendarView->monthVisibleRangeEnd();
     onDateSelected(m_calendarView->selectedDate());
     refreshCalendarMarkers();
+
+    // NOW screen - onDateSelected() выше уже вызвал refreshEventsList(),
+    // который вызывает refreshNowView() (см. её реализацию), так что
+    // первый снимок уже готов. Таймер нужен только для случаев, когда
+    // пользователь просто сидит на экране и ничего не делает - иначе
+    // Missed "проявится" в NOW только при следующем действии в приложении.
+    // Раз в минуту достаточно: сама задача не мутирует БД, это чтение +
+    // вычисление (см. комментарий у EventManager::nowSnapshot()).
+    m_nowRefreshTimer = new QTimer(this);
+    m_nowRefreshTimer->setInterval(60000);
+    connect(m_nowRefreshTimer, &QTimer::timeout, this, &MainWindow::refreshNowView);
+    m_nowRefreshTimer->start();
 }
 
 void MainWindow::onDateSelected(const QDate &date)
@@ -217,6 +230,8 @@ void MainWindow::refreshEventsList()
     m_startTaskButton->setEnabled(false);
     m_completeTaskButton->setEnabled(false);
     m_taskStatusLabel->clear();
+
+    refreshNowView();
 }
 
 void MainWindow::refreshCalendarMarkers()
@@ -231,6 +246,13 @@ void MainWindow::refreshCalendarMarkers()
         eventsByDate[event.date].append(event);
 
     m_calendarView->setEventsForVisibleRange(eventsByDate);
+}
+
+void MainWindow::refreshNowView()
+{
+    const QDateTime now = QDateTime::currentDateTime();
+    const NowSnapshot snapshot = m_eventManager.nowSnapshot(now.date(), now);
+    m_calendarView->setNowSnapshot(snapshot, now);
 }
 
 void MainWindow::onVisibleRangeChanged(const QDate &start, const QDate &end)

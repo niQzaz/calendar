@@ -18,6 +18,7 @@ class QListWidgetItem;
 class QLabel;
 class QPushButton;
 class QAction;
+class QTimer;
 
 // Главное окно приложения.
 //
@@ -55,6 +56,16 @@ private slots:
 private:
     void refreshEventsList();
     void refreshCalendarMarkers();
+
+    // NOW screen (продолжение MVP3) - пересчитывает snapshot на "сейчас"
+    // и прокидывает в CalendarView. Вызывается из refreshEventsList()
+    // (этого достаточно - она уже вызывается после любого действия,
+    // способного повлиять на NOW: Start/Complete, создание/правка/удаление
+    // события, drag/resize, смена категории) и по таймеру m_nowRefreshTimer -
+    // чтобы Missed успевал "проявиться" в UI, даже если пользователь просто
+    // сидит на экране и ничего не делает. НЕ пишет ничего в БД - см.
+    // комментарий у EventManager::nowSnapshot().
+    void refreshNowView();
     void applyShortcuts(); // выставляет QKeySequence каждому QAction из AppSettings
 
     // Общая логика открытия EventDialog - используется и кнопкой/списком
@@ -73,11 +84,12 @@ private:
     QPushButton *m_deleteEventButton = nullptr;
     QPushButton *m_startPomodoroButton = nullptr;
 
-    // MVP 3.0 - Task Execution Foundation: минимальный технический UI,
-    // чтобы проверить механизм Start/Complete (раздел 7 - полноценный
-    // NOW screen оставлен для следующего шага). Работают с тем же
-    // выбранным элементом m_eventsList, что и остальные кнопки этой
-    // панели - см. onEventSelectionChanged().
+    // MVP 3.0 - Task Execution Foundation: минимальный технический UI для
+    // Start/Complete. Работают с тем же выбранным элементом m_eventsList,
+    // что и остальные кнопки этой панели - см. onEventSelectionChanged().
+    // Из-за m_rightPanel->setVisible(mode == Month) выше эти кнопки сейчас
+    // недостижимы в Week/Day - известное ограничение, зафиксированное
+    // отдельно, не то, что решается в рамках NOW screen.
     QPushButton *m_startTaskButton = nullptr;
     QPushButton *m_completeTaskButton = nullptr;
     QLabel *m_taskStatusLabel = nullptr;
@@ -104,4 +116,10 @@ private:
     // конструкторы других виджетов пока не нужно, т.к. только MainWindow
     // работает с событиями напрямую.
     EventManager m_eventManager;
+
+    // NOW screen - периодически (раз в минуту) вызывает refreshNowView()
+    // ЧИСТО ДЛЯ ОТОБРАЖЕНИЯ (пересчёт effectiveStatus/Missed), в БД ничего
+    // не пишет - раздел 6 Product Context запрещает именно мутацию по
+    // таймеру, а не обновление UI по таймеру, это разные вещи.
+    QTimer *m_nowRefreshTimer = nullptr;
 };

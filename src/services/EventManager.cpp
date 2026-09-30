@@ -660,3 +660,41 @@ ExecutionStatus EventManager::effectiveStatus(int eventId, const QDate &occurren
         now, gracePeriodMinutes
     );
 }
+
+NowSnapshot EventManager::nowSnapshot(const QDate &date, const QDateTime &now, int gracePeriodMinutes) const
+{
+    NowSnapshot snapshot;
+
+    const QVector<Event> events = eventsForDate(date);
+    snapshot.allForDate.reserve(events.size());
+    for (const Event &event : events) {
+        EventExecution execution;
+        const bool hasExecution = executionForOccurrence(event.id, event.date, execution);
+
+        EventWithStatus item;
+        item.event = event;
+        item.execution = hasExecution ? execution : EventExecution();
+        item.status = resolveExecutionStatus(
+            event.date, event.startTime, event.endTime,
+            hasExecution ? &execution : nullptr, now, gracePeriodMinutes
+        );
+
+        snapshot.allForDate.append(item);
+    }
+
+    const QTime nowTime = now.time();
+
+    EventWithStatus current;
+    if (findCurrentTask(snapshot.allForDate, nowTime, current)) {
+        snapshot.hasCurrent = true;
+        snapshot.current = current;
+    }
+
+    EventWithStatus next;
+    if (findNextTask(snapshot.allForDate, nowTime, snapshot.hasCurrent ? &snapshot.current : nullptr, next)) {
+        snapshot.hasNext = true;
+        snapshot.next = next;
+    }
+
+    return snapshot;
+}

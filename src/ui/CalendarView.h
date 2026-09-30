@@ -3,10 +3,12 @@
 #include <QWidget>
 #include <QDate>
 #include <QTime>
+#include <QDateTime>
 #include <QMap>
 #include <QVector>
 
 #include "models/Event.h"
+#include "models/Execution.h"
 #include "services/Theme.h"
 
 class QLabel;
@@ -15,11 +17,13 @@ class QStackedWidget;
 class MonthView;
 class WeekView;
 class DayView;
+class NowView;
 class ICalendarPage;
 
-// Какое из трёх представлений сейчас показано.
+// Какое из четырёх представлений сейчас показано.
 enum class CalendarViewMode
 {
+    Now,
     Month,
     Week,
     Day
@@ -60,6 +64,11 @@ public:
     void setSelectedDate(const QDate &date);
     void goToToday();
 
+    // NOW screen (продолжение MVP3) - прокидывается в NowView независимо
+    // от того, какой режим сейчас активен (см. .cpp), чтобы данные уже
+    // были свежими к моменту, когда пользователь переключится на Now.
+    void setNowSnapshot(const NowSnapshot &snapshot, const QDateTime &asOf);
+
 signals:
     void viewModeChanged(CalendarViewMode mode);
 
@@ -90,11 +99,13 @@ private:
     CalendarViewMode m_viewMode = CalendarViewMode::Month;
 
     QLabel *m_titleLabel = nullptr;
+    QPushButton *m_nowButton = nullptr;
     QPushButton *m_monthButton = nullptr;
     QPushButton *m_weekButton = nullptr;
     QPushButton *m_dayButton = nullptr;
     QStackedWidget *m_stack = nullptr;
 
+    NowView *m_nowView = nullptr;
     MonthView *m_monthView = nullptr;
     WeekView *m_weekView = nullptr;
     DayView *m_dayView = nullptr;

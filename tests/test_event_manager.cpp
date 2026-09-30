@@ -68,6 +68,8 @@ private slots:
     void effectiveStatus_startedTaskDoesNotBecomeMissedPastPlannedEnd();
     void recurringEvent_occurrencesTrackExecutionIndependently();
     void removeEvent_alsoRemovesItsExecutionRecords();
+    void nowSnapshot_findsCurrentAndNextTask();
+    void nowSnapshot_runningTaskIsCurrentEvenAfterItsWindowPassed();
 
 private:
     EventManager *m_manager = nullptr;
@@ -724,6 +726,60 @@ void TestEventManager::removeEvent_alsoRemovesItsExecutionRecords()
 
     EventExecution afterDelete;
     QVERIFY(!m_manager->executionForOccurrence(eventId, event.date, afterDelete)); // не осталось сиротой
+}
+
+void TestEventManager::nowSnapshot_findsCurrentAndNextTask()
+{
+    Event current;
+    current.title = QStringLiteral("Standup");
+    current.date = QDate(2026, 9, 21);
+    current.startTime = QTime(9, 0);
+    current.endTime = QTime(9, 15);
+    QVERIFY(m_manager->addEvent(current) > 0);
+
+    Event next;
+    next.title = QStringLiteral("Design review");
+    next.date = QDate(2026, 9, 21);
+    next.startTime = QTime(11, 0);
+    next.endTime = QTime(12, 0);
+    QVERIFY(m_manager->addEvent(next) > 0);
+
+    // "Сейчас" - внутри окна Standup (9:00-9:15), задолго до Design review.
+    const QDateTime now(current.date, QTime(9, 5));
+    const NowSnapshot snapshot = m_manager->nowSnapshot(current.date, now);
+
+    QVERIFY(snapshot.hasCurrent);
+    QCOMPARE(snapshot.current.event.title, QStringLiteral("Standup"));
+    QCOMPARE(snapshot.current.status, ExecutionStatus::Planned);
+
+    QVERIFY(snapshot.hasNext);
+    QCOMPARE(snapshot.next.event.title, QStringLiteral("Design review"));
+
+    QCOMPARE(snapshot.allForDate.size(), 2); // сводка дня видит оба события
+}
+
+void TestEventManager::nowSnapshot_runningTaskIsCurrentEvenAfterItsWindowPassed()
+{
+    // То же самое требование раздела 5 (Started-задача не становится
+    // Missed после planned end), но теперь ещё и проверяем, что она
+    // остаётся "текущей" в nowSnapshot(), а не просто не-Missed.
+    Event event;
+    event.title = QStringLiteral("Long focus block");
+    event.date = QDate(2026, 9, 21);
+    event.startTime = QTime(9, 0);
+    event.endTime = QTime(9, 30);
+    const int eventId = m_manager->addEvent(event);
+    QVERIFY(eventId > 0);
+
+    QVERIFY(m_manager->startOccurrence(eventId, event.date, QDateTime(event.date, QTime(9, 5))));
+
+    // "Сейчас" - на два часа позже planned end (окно формально давно кончилось).
+    const QDateTime now(event.date, QTime(11, 30));
+    const NowSnapshot snapshot = m_manager->nowSnapshot(event.date, now);
+
+    QVERIFY(snapshot.hasCurrent);
+    QCOMPARE(snapshot.current.event.id, eventId);
+    QCOMPARE(snapshot.current.status, ExecutionStatus::Running);
 }
 
 QTEST_MAIN(TestEventManager)

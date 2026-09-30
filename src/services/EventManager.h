@@ -142,6 +142,17 @@ public:
                                      const QDateTime &now,
                                      int gracePeriodMinutes = kDefaultGracePeriodMinutes) const;
 
+    // NOW screen - собирает события дня (обычно - сегодня) вместе с
+    // резолвнутым статусом каждого и самой execution-записью (та же логика,
+    // что в effectiveStatus(), но выполняется инлайн, а не через него -
+    // чтобы заодно вернуть и EventExecution для расчёта deviation в UI,
+    // не делая по ней ещё один отдельный запрос), и определяет текущую/
+    // следующую задачу через findCurrentTask()/findNextTask() (models/
+    // Execution.h - там же вся логика выбора, здесь только сборка данных).
+    // НЕ пишет ничего в БД - то же чтение+вычисление, что и effectiveStatus().
+    NowSnapshot nowSnapshot(const QDate &date, const QDateTime &now,
+                             int gracePeriodMinutes = kDefaultGracePeriodMinutes) const;
+
 private:
     // Загружает все события с recurrence_type != 'none' - их всегда немного
     // (это шаблоны, а не отдельные повторения), поэтому дальше с ними

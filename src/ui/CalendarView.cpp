@@ -1,4 +1,5 @@
 #include "CalendarView.h"
+#include "NowView.h"
 #include "MonthView.h"
 #include "WeekView.h"
 #include "DayView.h"
@@ -46,10 +47,11 @@ CalendarView::CalendarView(QWidget *parent)
     auto *switcherLayout = new QHBoxLayout();
     switcherLayout->addStretch();
 
+    m_nowButton = new QPushButton("Now", this);
     m_monthButton = new QPushButton("Month", this);
     m_weekButton = new QPushButton("Week", this);
     m_dayButton = new QPushButton("Day", this);
-    for (QPushButton *button : {m_monthButton, m_weekButton, m_dayButton}) {
+    for (QPushButton *button : {m_nowButton, m_monthButton, m_weekButton, m_dayButton}) {
         button->setObjectName("viewSwitcherButton");
         button->setCheckable(true);
         switcherLayout->addWidget(button);
@@ -57,16 +59,19 @@ CalendarView::CalendarView(QWidget *parent)
     switcherLayout->addStretch();
     rootLayout->addLayout(switcherLayout);
 
+    connect(m_nowButton, &QPushButton::clicked, this, [this]() { setViewMode(CalendarViewMode::Now); });
     connect(m_monthButton, &QPushButton::clicked, this, [this]() { setViewMode(CalendarViewMode::Month); });
     connect(m_weekButton, &QPushButton::clicked, this, [this]() { setViewMode(CalendarViewMode::Week); });
     connect(m_dayButton, &QPushButton::clicked, this, [this]() { setViewMode(CalendarViewMode::Day); });
 
     // --- Сами представления ---
+    m_nowView = new NowView(this);
     m_monthView = new MonthView(this);
     m_weekView = new WeekView(this);
     m_dayView = new DayView(this);
 
     m_stack = new QStackedWidget(this);
+    m_stack->addWidget(m_nowView);
     m_stack->addWidget(m_monthView);
     m_stack->addWidget(m_weekView);
     m_stack->addWidget(m_dayView);
@@ -104,6 +109,7 @@ CalendarView::CalendarView(QWidget *parent)
 ICalendarPage *CalendarView::currentPage() const
 {
     switch (m_viewMode) {
+    case CalendarViewMode::Now: return m_nowView;
     case CalendarViewMode::Month: return m_monthView;
     case CalendarViewMode::Week: return m_weekView;
     case CalendarViewMode::Day: return m_dayView;
@@ -116,6 +122,7 @@ void CalendarView::setViewMode(CalendarViewMode mode)
     m_viewMode = mode;
 
     switch (mode) {
+    case CalendarViewMode::Now: m_stack->setCurrentWidget(m_nowView); break;
     case CalendarViewMode::Month: m_stack->setCurrentWidget(m_monthView); break;
     case CalendarViewMode::Week: m_stack->setCurrentWidget(m_weekView); break;
     case CalendarViewMode::Day: m_stack->setCurrentWidget(m_dayView); break;
@@ -134,6 +141,12 @@ void CalendarView::emitCurrentRange()
     // актуальный диапазон и сообщить наружу явно, иначе MainWindow не
     // узнает, что нужно подгрузить события для новых дат.
     switch (m_viewMode) {
+    case CalendarViewMode::Now:
+        // NOW не участвует в range-based пайплайне (visibleRangeChanged ->
+        // eventsInRange -> setEventsForVisibleRange) - у него отдельный
+        // путь данных, setNowSnapshot(), который MainWindow дёргает по
+        // таймеру и по факту изменений, независимо от активного режима.
+        break;
     case CalendarViewMode::Month:
         emit visibleRangeChanged(m_monthView->visibleRangeStart(), m_monthView->visibleRangeEnd());
         break;
@@ -148,6 +161,7 @@ void CalendarView::emitCurrentRange()
 
 void CalendarView::updateSwitcherButtons()
 {
+    m_nowButton->setChecked(m_viewMode == CalendarViewMode::Now);
     m_monthButton->setChecked(m_viewMode == CalendarViewMode::Month);
     m_weekButton->setChecked(m_viewMode == CalendarViewMode::Week);
     m_dayButton->setChecked(m_viewMode == CalendarViewMode::Day);
@@ -203,6 +217,8 @@ void CalendarView::setEventsForVisibleRange(const QMap<QDate, QVector<Event>> &e
     // обоим сразу: иначе, например, узкий недельный диапазон "затёр" бы
     // месячную сетку почти пустой на короткое время между переключениями.
     switch (m_viewMode) {
+    case CalendarViewMode::Now:
+        break; // NOW получает данные отдельно, через setNowSnapshot()
     case CalendarViewMode::Month:
         m_monthView->setEventsForVisibleRange(eventsByDate);
         break;
@@ -215,8 +231,20 @@ void CalendarView::setEventsForVisibleRange(const QMap<QDate, QVector<Event>> &e
     }
 }
 
+void CalendarView::setNowSnapshot(const NowSnapshot &snapshot, const QDateTime &asOf)
+{
+    // В отличие от setEventsForVisibleRange() выше, прокидывается всегда,
+    // а не только активному представлению - NowView лёгкий (просто текст
+    // в лейблах), и это гарантирует, что данные уже свежие к моменту,
+    // когда пользователь переключится на Now, без "мигания" пустым видом.
+    m_nowView->setSnapshot(snapshot, asOf);
+    if (m_viewMode == CalendarViewMode::Now)
+        updateHeaderTitle(); // заголовок ("Monday, 28 September") зависит от asOf
+}
+
 void CalendarView::setTheme(const Theme &theme)
 {
+    m_nowView->setTheme(theme);
     m_monthView->setTheme(theme);
     m_weekView->setTheme(theme);
     m_dayView->setTheme(theme);

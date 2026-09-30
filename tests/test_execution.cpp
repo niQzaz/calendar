@@ -30,6 +30,22 @@ private:
         return execution;
     }
 
+    // Хелпер для findCurrentTask()/findNextTask(): минимальный
+    // EventWithStatus с нужным временем/статусом - все события одного
+    // и того же условного дня, только id для различения.
+    static EventWithStatus makeItem(const QString &title, const QTime &start, const QTime &end,
+                                     ExecutionStatus status, int id)
+    {
+        EventWithStatus item;
+        item.event.id = id;
+        item.event.title = title;
+        item.event.date = QDate(2026, 9, 21);
+        item.event.startTime = start;
+        item.event.endTime = end;
+        item.status = status;
+        return item;
+    }
+
 private slots:
     // --- resolveExecutionStatus() ---
 
@@ -287,6 +303,106 @@ private slots:
     {
         QCOMPARE(executionStatusFromString("not_a_real_status"), ExecutionStatus::Planned);
         QCOMPARE(executionStatusFromString(QString()), ExecutionStatus::Planned);
+    }
+
+    // --- findCurrentTask() ---
+
+    void findCurrentTask_prefersRunningOverPlannedWindow()
+    {
+        // Running-задача выигрывает у "плановое окно содержит now", даже
+        // если формально уже должна была закончиться по расписанию.
+        const QVector<EventWithStatus> events = {
+            makeItem("Meeting", QTime(9, 0), QTime(10, 0), ExecutionStatus::Planned, 1),
+            makeItem("Deep work", QTime(8, 0), QTime(8, 30), ExecutionStatus::Running, 2),
+        };
+
+        EventWithStatus current;
+        QVERIFY(findCurrentTask(events, QTime(9, 30), current));
+        QCOMPARE(current.event.id, 2);
+    }
+
+    void findCurrentTask_findsPlannedTaskWhoseWindowContainsNow()
+    {
+        const QVector<EventWithStatus> events = {
+            makeItem("Meeting", QTime(9, 0), QTime(10, 0), ExecutionStatus::Planned, 1),
+        };
+
+        EventWithStatus current;
+        QVERIFY(findCurrentTask(events, QTime(9, 30), current));
+        QCOMPARE(current.event.id, 1);
+    }
+
+    void findCurrentTask_ignoresCompletedEvenIfWindowContainsNow()
+    {
+        // Завершённая задача не может быть "текущей", даже если now всё ещё
+        // формально попадает в её старое плановое окно.
+        const QVector<EventWithStatus> events = {
+            makeItem("Meeting", QTime(9, 0), QTime(10, 0), ExecutionStatus::Completed, 1),
+        };
+
+        EventWithStatus current;
+        QVERIFY(!findCurrentTask(events, QTime(9, 30), current));
+    }
+
+    void findCurrentTask_returnsFalseWhenNothingMatches()
+    {
+        const QVector<EventWithStatus> events = {
+            makeItem("Later", QTime(14, 0), QTime(15, 0), ExecutionStatus::Planned, 1),
+        };
+
+        EventWithStatus current;
+        QVERIFY(!findCurrentTask(events, QTime(9, 30), current));
+    }
+
+    // --- findNextTask() ---
+
+    void findNextTask_picksEarliestUpcoming()
+    {
+        const QVector<EventWithStatus> events = {
+            makeItem("Later", QTime(15, 0), QTime(16, 0), ExecutionStatus::Planned, 1),
+            makeItem("Sooner", QTime(11, 0), QTime(12, 0), ExecutionStatus::Planned, 2),
+        };
+
+        EventWithStatus next;
+        QVERIFY(findNextTask(events, QTime(9, 0), nullptr, next));
+        QCOMPARE(next.event.id, 2);
+    }
+
+    void findNextTask_excludesCurrentTask()
+    {
+        const EventWithStatus current = makeItem("Now", QTime(9, 0), QTime(10, 0), ExecutionStatus::Running, 1);
+        const QVector<EventWithStatus> events = {
+            current,
+            makeItem("Next", QTime(11, 0), QTime(12, 0), ExecutionStatus::Planned, 2),
+        };
+
+        EventWithStatus next;
+        QVERIFY(findNextTask(events, QTime(9, 30), &current, next));
+        QCOMPARE(next.event.id, 2);
+    }
+
+    void findNextTask_excludesCompletedCancelledPostponed()
+    {
+        const QVector<EventWithStatus> events = {
+            makeItem("Done already", QTime(11, 0), QTime(12, 0), ExecutionStatus::Completed, 1),
+            makeItem("Cancelled", QTime(11, 30), QTime(12, 30), ExecutionStatus::Cancelled, 2),
+            makeItem("Postponed", QTime(11, 45), QTime(12, 45), ExecutionStatus::Postponed, 3),
+            makeItem("Actually next", QTime(13, 0), QTime(14, 0), ExecutionStatus::Planned, 4),
+        };
+
+        EventWithStatus next;
+        QVERIFY(findNextTask(events, QTime(9, 0), nullptr, next));
+        QCOMPARE(next.event.id, 4);
+    }
+
+    void findNextTask_returnsFalseWhenNothingUpcoming()
+    {
+        const QVector<EventWithStatus> events = {
+            makeItem("Already passed", QTime(8, 0), QTime(9, 0), ExecutionStatus::Planned, 1),
+        };
+
+        EventWithStatus next;
+        QVERIFY(!findNextTask(events, QTime(9, 30), nullptr, next));
     }
 };
 
