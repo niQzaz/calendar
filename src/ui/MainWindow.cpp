@@ -148,6 +148,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_startTaskButton, &QPushButton::clicked, this, &MainWindow::onStartTaskClicked);
     connect(m_completeTaskButton, &QPushButton::clicked, this, &MainWindow::onCompleteTaskClicked);
     connect(m_pomodoro, &PomodoroWidget::pomodoroCompletedForEvent, this, &MainWindow::onPomodoroCompletedForEvent);
+    connect(m_pomodoro, &PomodoroWidget::startCurrentTaskRequested, this, &MainWindow::onStartCurrentTaskClicked);
     connect(m_calendarView, &CalendarView::visibleRangeChanged, this, &MainWindow::onVisibleRangeChanged);
     connect(m_calendarView, &CalendarView::createEventRequested, this, &MainWindow::onCreateEventRequested);
     connect(m_calendarView, &CalendarView::createEventRequestedWithTime, this, &MainWindow::onCreateEventRequestedWithTime);
@@ -433,21 +434,64 @@ void MainWindow::onStartPomodoroClicked()
         return;
 
     const int eventId = item->data(Qt::UserRole).toInt();
+    // Та же дата, что и у onStartTaskClicked() - event.date из eventById()
+    // был бы датой ЯКОРЯ серии для повторяющегося события, а не датой
+    // конкретного вхождения, выбранного в списке.
+    const QDate occurrenceDate = m_calendarView->selectedDate();
 
     Event event;
     if (!m_eventManager.eventById(eventId, event))
         return;
 
-    const QString taskLabel = QString("%1 (%2\xE2\x80\x93%3)")
-        .arg(event.title)
-        .arg(event.startTime.toString("HH:mm"))
-        .arg(event.endTime.toString("HH:mm"));
-
-    m_pomodoro->startForTask(event.id, taskLabel);
+    startPomodoroForOccurrence(event, occurrenceDate);
 }
 
-void MainWindow::onPomodoroCompletedForEvent(int eventId)
+void MainWindow::onStartCurrentTaskClicked()
 {
+    const QDateTime now = QDateTime::currentDateTime();
+    const NowSnapshot snapshot = m_eventManager.nowSnapshot(now.date(), now);
+
+    if (!snapshot.hasCurrent) {
+        m_pomodoro->showNoCurrentTask();
+        return;
+    }
+
+    // snapshot.current.event.date - уже дата КОНКРЕТНОГО вхождения (для
+    // повторяющегося события - именно та, на которую его развернул
+    // eventsForDate() внутри nowSnapshot(), не дата якоря серии), так что
+    // отдельно её вычислять не нужно, в отличие от onStartPomodoroClicked() выше.
+    startPomodoroForOccurrence(snapshot.current.event, snapshot.current.event.date);
+}
+
+void MainWindow::startPomodoroForOccurrence(const Event &event, const QDate &occurrenceDate)
+{
+    const QDateTime now = QDateTime::currentDateTime();
+    const ExecutionStatus status = m_eventManager.effectiveStatus(
+        event.id, occurrenceDate, event.startTime, event.endTime, now);
+
+    // Если уже Running - НЕ зовём startOccurrence() повторно: это
+    // перезаписало бы actual_start на текущий момент, хотя задача по факту
+    // уже началась раньше. Pomodoro же всё равно (пере)запускаем - это его
+    // обычная, не меняющаяся семантика повторного Start.
+    if (status != ExecutionStatus::Running)
+        m_eventManager.startOccurrence(event.id, occurrenceDate, now);
+
+    const QString taskLabel = QString("%1 (%2\xE2\x80\x93%3)")
+        .arg(event.title, event.startTime.toString("HH:mm"), event.endTime.toString("HH:mm"));
+    m_pomodoro->startForTask(event.id, occurrenceDate, taskLabel);
+
+    refreshEventsList(); // подхватит новый статус (бейдж в списке, NOW - через refreshNowView() внутри)
+}
+
+void MainWindow::onPomodoroCompletedForEvent(int eventId, const QDate &occurrenceDate)
+{
+    // occurrenceDate пока не используется для хранения (incrementPomodoroCount
+    // остаётся прежним, не occurrence-aware счётчиком - см. отчёт анализа:
+    // полноценная occurrence-aware pomodoro-статистика - отдельная задача,
+    // не в этом scope). Параметр уже протащен через сигнал, чтобы эта
+    // функция была готова использовать его, когда такая статистика появится,
+    // без необходимости снова менять сигнатуру сигнала.
+    Q_UNUSED(occurrenceDate);
     m_eventManager.incrementPomodoroCount(eventId);
     refreshEventsList();
 }

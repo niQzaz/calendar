@@ -40,7 +40,8 @@ private slots:
     void onEventSelectionChanged();
     void onEventDoubleClicked(QListWidgetItem *item);
     void onStartPomodoroClicked();
-    void onPomodoroCompletedForEvent(int eventId);
+    void onStartCurrentTaskClicked(); // PomodoroWidget::startCurrentTaskRequested()
+    void onPomodoroCompletedForEvent(int eventId, const QDate &occurrenceDate);
     void onStartTaskClicked();
     void onCompleteTaskClicked();
     void onImportCsvClicked();
@@ -67,6 +68,16 @@ private:
     // комментарий у EventManager::nowSnapshot().
     void refreshNowView();
     void applyShortcuts(); // выставляет QKeySequence каждому QAction из AppSettings
+
+    // Единственное место, где Pomodoro и Execution встречаются - ни
+    // PomodoroWidget, ни PomodoroTimer про EventManager не знают (и не
+    // должны). Если occurrence ещё не Running - стартует Execution
+    // (startOccurrence), actual_start не трогает, если он уже есть
+    // (effectiveStatus() == Running). В любом случае - запускает Pomodoro
+    // для той же пары (event.id, occurrenceDate). Используется и починенным
+    // onStartPomodoroClicked() (выбор из списка), и onStartCurrentTaskClicked()
+    // (Current Task из nowSnapshot()) - оба раньше дублировали бы эту логику.
+    void startPomodoroForOccurrence(const Event &event, const QDate &occurrenceDate);
 
     // Общая логика открытия EventDialog - используется и кнопкой/списком
     // (как раньше), и новыми сигналами от Month/Week/Day (двойной клик

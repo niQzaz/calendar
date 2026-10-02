@@ -28,12 +28,14 @@ PomodoroWidget::PomodoroWidget(AppSettings *settings, NotificationService *notif
     m_completedLabel->setAlignment(Qt::AlignCenter);
     m_completedLabel->setObjectName("pomodoroCompletedLabel");
 
+    m_startCurrentTaskButton = new QPushButton("Start Current Task", this);
     m_startButton = new QPushButton("Start", this);
     m_pauseButton = new QPushButton("Pause", this);
     m_resetButton = new QPushButton("Reset", this);
     m_pauseButton->setEnabled(false);
 
     auto *buttonsLayout = new QHBoxLayout();
+    buttonsLayout->addWidget(m_startCurrentTaskButton);
     buttonsLayout->addWidget(m_startButton);
     buttonsLayout->addWidget(m_pauseButton);
     buttonsLayout->addWidget(m_resetButton);
@@ -51,6 +53,7 @@ PomodoroWidget::PomodoroWidget(AppSettings *settings, NotificationService *notif
     connect(m_timer, &PomodoroTimer::modeChanged, this, &PomodoroWidget::onModeChanged);
     connect(m_timer, &PomodoroTimer::pomodoroCompleted, this, &PomodoroWidget::onPomodoroCompleted);
 
+    connect(m_startCurrentTaskButton, &QPushButton::clicked, this, &PomodoroWidget::startCurrentTaskRequested);
     connect(m_startButton, &QPushButton::clicked, this, &PomodoroWidget::toggleStartPause);
     connect(m_pauseButton, &QPushButton::clicked, this, &PomodoroWidget::toggleStartPause);
     connect(m_resetButton, &QPushButton::clicked, this, [this]() {
@@ -78,12 +81,23 @@ void PomodoroWidget::toggleStartPause()
     }
 }
 
-void PomodoroWidget::startForTask(int eventId, const QString &taskLabel)
+void PomodoroWidget::startForTask(int eventId, const QDate &occurrenceDate, const QString &taskLabel)
 {
     m_linkedEventId = eventId;
-    m_currentTaskLabel->setText(QString("Task: %1").arg(taskLabel));
+    m_linkedOccurrenceDate = occurrenceDate;
+    m_currentTaskLabel->setText(QString("Pomodoro: %1").arg(taskLabel));
     m_timer->startFresh();
     setRunningButtonsState(true);
+}
+
+void PomodoroWidget::showNoCurrentTask()
+{
+    // Ничего не трогаем в таймере/привязке - просто сообщаем пользователю,
+    // что "Start Current Task" не нашёл, что запускать. Если до этого
+    // таймер был привязан к какой-то задаче - привязка остаётся, только
+    // текст временно меняется на пояснение (следующий тик/действие его
+    // не тронет, но явный startForTask() позже - переопределит).
+    m_currentTaskLabel->setText("No current task");
 }
 
 void PomodoroWidget::setRunningButtonsState(bool running)
@@ -126,12 +140,12 @@ void PomodoroWidget::onPomodoroCompleted(int totalCompleted)
 {
     m_completedLabel->setText(QString("Completed pomodoros: %1").arg(totalCompleted));
 
-    // Если таймер сейчас привязан к конкретной задаче - сообщаем об этом
-    // наружу, чтобы MainWindow сохранил +1 pomodoro для этого события в БД.
+    // Если таймер сейчас привязан к конкретному вхождению - сообщаем об
+    // этом наружу, чтобы MainWindow сохранил +1 pomodoro для него в БД.
     // PomodoroTimer сам не знает про события - эту связь держит только
     // PomodoroWidget.
     if (m_linkedEventId != -1)
-        emit pomodoroCompletedForEvent(m_linkedEventId);
+        emit pomodoroCompletedForEvent(m_linkedEventId, m_linkedOccurrenceDate);
 }
 
 QString PomodoroWidget::formatTime(int totalSeconds)

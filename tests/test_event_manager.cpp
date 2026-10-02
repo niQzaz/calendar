@@ -71,6 +71,20 @@ private slots:
     void nowSnapshot_findsCurrentAndNextTask();
     void nowSnapshot_runningTaskIsCurrentEvenAfterItsWindowPassed();
 
+    // --- Pomodoro/Execution интеграция ---
+    // MainWindow::startPomodoroForOccurrence() - GUI-код, в этом проекте
+    // виджеты headless QTest'ом не покрываются (тот же прецедент, что и
+    // drag/resize в TimeGridView). Тесты ниже проверяют ту же самую
+    // "check-then-start" логику (effectiveStatus(), и только если не
+    // Running - startOccurrence()) напрямую через EventManager - это и
+    // есть единственная НОВАЯ логика этой интеграции, PomodoroWidget сам
+    // в неё не добавляет ничего, что стоило бы тестировать на этом уровне.
+    void pomodoroStartPattern_firstCallStartsOccurrence();
+    void pomodoroStartPattern_secondCallDoesNotOverwriteActualStart();
+    void nowSnapshot_currentTaskOccurrenceDateMatchesQueriedDay();
+    void nowSnapshot_differentDaysYieldIndependentExecutionsForRecurringEvent();
+    void nowSnapshot_noCurrentTaskWhenNothingScheduled();
+
 private:
     EventManager *m_manager = nullptr;
 };
@@ -780,6 +794,132 @@ void TestEventManager::nowSnapshot_runningTaskIsCurrentEvenAfterItsWindowPassed(
     QVERIFY(snapshot.hasCurrent);
     QCOMPARE(snapshot.current.event.id, eventId);
     QCOMPARE(snapshot.current.status, ExecutionStatus::Running);
+}
+
+void TestEventManager::pomodoroStartPattern_firstCallStartsOccurrence()
+{
+    // Воспроизводит MainWindow::startPomodoroForOccurrence(): effectiveStatus()
+    // сначала, и только если он НЕ Running - startOccurrence().
+    Event event;
+    event.title = QStringLiteral("Focus block");
+    event.date = QDate(2026, 9, 21);
+    event.startTime = QTime(9, 0);
+    event.endTime = QTime(10, 0);
+    const int eventId = m_manager->addEvent(event);
+    QVERIFY(eventId > 0);
+
+    const QDateTime now(event.date, QTime(9, 2));
+    const ExecutionStatus statusBefore = m_manager->effectiveStatus(
+        eventId, event.date, event.startTime, event.endTime, now);
+    QCOMPARE(statusBefore, ExecutionStatus::Planned);
+
+    if (statusBefore != ExecutionStatus::Running)
+        QVERIFY(m_manager->startOccurrence(eventId, event.date, now));
+
+    EventExecution execution;
+    QVERIFY(m_manager->executionForOccurrence(eventId, event.date, execution));
+    QCOMPARE(execution.status, ExecutionStatus::Running);
+    QCOMPARE(execution.actualStart, now);
+}
+
+void TestEventManager::pomodoroStartPattern_secondCallDoesNotOverwriteActualStart()
+{
+    Event event;
+    event.title = QStringLiteral("Focus block");
+    event.date = QDate(2026, 9, 21);
+    event.startTime = QTime(9, 0);
+    event.endTime = QTime(10, 0);
+    const int eventId = m_manager->addEvent(event);
+
+    const QDateTime firstStart(event.date, QTime(9, 2));
+    QVERIFY(m_manager->startOccurrence(eventId, event.date, firstStart));
+
+    // Пользователь нажимает "Start Pomodoro" ещё раз (например, после паузы) -
+    // та же самая check-then-start логика: effectiveStatus() уже Running,
+    // значит startOccurrence() на этот раз НЕ должен вызываться.
+    const QDateTime secondAttempt(event.date, QTime(9, 20));
+    const ExecutionStatus statusNow = m_manager->effectiveStatus(
+        eventId, event.date, event.startTime, event.endTime, secondAttempt);
+    QCOMPARE(statusNow, ExecutionStatus::Running);
+
+    if (statusNow != ExecutionStatus::Running)
+        m_manager->startOccurrence(eventId, event.date, secondAttempt); // не должно выполниться
+
+    EventExecution execution;
+    QVERIFY(m_manager->executionForOccurrence(eventId, event.date, execution));
+    QCOMPARE(execution.status, ExecutionStatus::Running);
+    QCOMPARE(execution.actualStart, firstStart); // не secondAttempt - не перезаписалось
+}
+
+void TestEventManager::nowSnapshot_currentTaskOccurrenceDateMatchesQueriedDay()
+{
+    // "Математика" сегодня - MainWindow::onStartCurrentTaskClicked() берёт
+    // occurrenceDate из snapshot.current.event.date напрямую (не вычисляет
+    // отдельно, в отличие от onStartPomodoroClicked()) - этот тест проверяет
+    // именно то допущение, на которое он опирается.
+    Event weekly;
+    weekly.title = QStringLiteral("Math");
+    weekly.date = QDate(2026, 9, 21); // понедельник - якорь серии
+    weekly.startTime = QTime(13, 0);
+    weekly.endTime = QTime(14, 0);
+    weekly.recurrenceType = RecurrenceType::Weekly;
+    const int eventId = m_manager->addEvent(weekly);
+    QVERIFY(eventId > 0);
+
+    const QDate today(2026, 9, 28); // следующий понедельник - НЕ дата якоря
+    const QDateTime now(today, QTime(13, 10));
+    const NowSnapshot snapshot = m_manager->nowSnapshot(today, now);
+
+    QVERIFY(snapshot.hasCurrent);
+    QCOMPARE(snapshot.current.event.id, eventId);
+    QCOMPARE(snapshot.current.event.date, today); // НЕ дата якоря (21.09)
+}
+
+void TestEventManager::nowSnapshot_differentDaysYieldIndependentExecutionsForRecurringEvent()
+{
+    // Раздел 9 задания: "Математика" 2026-09-30 и 2026-10-01 должны
+    // остаться разными execution-записями, без смешивания.
+    Event weekly;
+    weekly.title = QStringLiteral("Math");
+    weekly.date = QDate(2026, 9, 30); // среда
+    weekly.startTime = QTime(13, 0);
+    weekly.endTime = QTime(14, 0);
+    weekly.recurrenceType = RecurrenceType::Daily; // ежедневно, чтобы оба дня подряд попадали в серию
+    const int eventId = m_manager->addEvent(weekly);
+    QVERIFY(eventId > 0);
+
+    const QDate day1(2026, 9, 30);
+    const QDate day2(2026, 10, 1);
+
+    const NowSnapshot snapshot1 = m_manager->nowSnapshot(day1, QDateTime(day1, QTime(13, 5)));
+    QVERIFY(snapshot1.hasCurrent);
+    QCOMPARE(snapshot1.current.event.date, day1);
+    QVERIFY(m_manager->startOccurrence(eventId, snapshot1.current.event.date, QDateTime(day1, QTime(13, 5))));
+
+    // День 2 - своя собственная, независимая от дня 1 запись.
+    const NowSnapshot snapshot2 = m_manager->nowSnapshot(day2, QDateTime(day2, QTime(13, 5)));
+    QVERIFY(snapshot2.hasCurrent);
+    QCOMPARE(snapshot2.current.event.date, day2);
+    QCOMPARE(snapshot2.current.status, ExecutionStatus::Planned); // НЕ Running - день 1 его не затронул
+
+    EventExecution execDay1;
+    QVERIFY(m_manager->executionForOccurrence(eventId, day1, execDay1));
+    QCOMPARE(execDay1.status, ExecutionStatus::Running);
+
+    EventExecution execDay2;
+    QVERIFY(!m_manager->executionForOccurrence(eventId, day2, execDay2)); // по дню 2 действий не было
+}
+
+void TestEventManager::nowSnapshot_noCurrentTaskWhenNothingScheduled()
+{
+    // Пустой день - nowSnapshot().hasCurrent должен быть false, чтобы
+    // MainWindow::onStartCurrentTaskClicked() корректно показал
+    // "No current task" и не пытался ничего стартовать.
+    const QDate emptyDay(2026, 9, 21);
+    const NowSnapshot snapshot = m_manager->nowSnapshot(emptyDay, QDateTime(emptyDay, QTime(10, 0)));
+
+    QVERIFY(!snapshot.hasCurrent);
+    QVERIFY(snapshot.allForDate.isEmpty());
 }
 
 QTEST_MAIN(TestEventManager)
