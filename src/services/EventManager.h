@@ -153,6 +153,42 @@ public:
     NowSnapshot nowSnapshot(const QDate &date, const QDateTime &now,
                              int gracePeriodMinutes = kDefaultGracePeriodMinutes) const;
 
+    // --- Reschedule (MVP3, Reschedule) ---
+    // Переносит ОДНО конкретное вхождение на новые дату/время.
+    //
+    // Две принципиально разные ветки (см. models/Event.h за объяснением
+    // разницы между шаблоном и вхождением):
+    //
+    //  - recurrenceType == None: вхождение и есть событие - переносится
+    //    через обычный updateEvent() на ту же строку, тот же event.id.
+    //    Новая строка/exception не создаются.
+    //
+    //  - recurrenceType != None: eventId - id ШАБЛОНА серии, occurrenceDate -
+    //    какое конкретно вхождение переносится. Шаблон НЕ меняется вообще -
+    //    вместо этого (event_id=eventId, excluded_date=occurrenceDate)
+    //    добавляется в recurrence_exceptions (дальше eventsForDate()/
+    //    eventsInRange() перестают генерировать это вхождение), и создаётся
+    //    новая ОБЫЧНАЯ (recurrence_type='none') строка events на новые
+    //    дату/время - title/description/category/priority/timezone
+    //    скопированы из шаблона, pomodorosCompleted = 0 (это НЕ копия
+    //    истории серии, а новое независимое событие). С этого момента
+    //    перенесённое вхождение ничем не отличается от обычного разового
+    //    события - Execution/Pomodoro/drag/resize работают с ним штатно,
+    //    без единой правки в их коде.
+    //
+    // В обоих ветках разрешены только статусы Planned и Missed (через
+    // effectiveStatus()) - Running/Completed отклоняются до каких-либо
+    // изменений БД. outNewEventId (если не nullptr) заполняется только
+    // в recurring-ветке - для one-time id события не меняется.
+    // now - по умолчанию текущий момент; явный параметр, как и у effectiveStatus()/
+    // nowSnapshot(), нужен для детерминированных тестов Planned/Missed/Running/
+    // Completed guard'а ниже - без него поведение зависело бы от реального
+    // времени на машине, где идёт тест.
+    bool rescheduleOccurrence(int eventId, const QDate &occurrenceDate,
+                               const QDate &newDate, const QTime &newStart, const QTime &newEnd,
+                               int *outNewEventId = nullptr,
+                               const QDateTime &now = QDateTime::currentDateTime());
+
 private:
     // Загружает все события с recurrence_type != 'none' - их всегда немного
     // (это шаблоны, а не отдельные повторения), поэтому дальше с ними
@@ -163,6 +199,13 @@ private:
     // общая часть startOccurrence()/completeOccurrence(), у обоих одна
     // и та же операция "записать/перезаписать execution-запись целиком".
     bool upsertExecution(const EventExecution &execution);
+
+    // true, если вхождение (templateEventId, date) было перенесено
+    // (т.е. в recurrence_exceptions есть такая строка) - значит
+    // eventsForDate()/eventsInRange() не должны генерировать его на эту
+    // дату из правила повторения; false и при отсутствии записи, и при
+    // ошибке запроса (безопасный дефолт - "не исключено").
+    bool hasRecurrenceException(int eventId, const QDate &date) const;
 
     QString m_connectionName;
 };

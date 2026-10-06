@@ -181,6 +181,21 @@ EventManager::EventManager(const QString &databasePath, const QString &connectio
         qWarning() << "Failed to create event_executions table:" << query.lastError().text();
     }
 
+    // Reschedule (MVP3) - помечает, что конкретное вхождение повторяющегося
+    // шаблона event_id на дату excluded_date было перенесено и больше не
+    // должно генерироваться из правила повторения (см. rescheduleOccurrence()
+    // ниже). Без FK - та же причина, что и у categories/event_executions.
+    if (!query.exec(
+        "CREATE TABLE IF NOT EXISTS recurrence_exceptions ("
+        "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  event_id INTEGER NOT NULL,"
+        "  excluded_date TEXT NOT NULL,"
+        "  UNIQUE(event_id, excluded_date)"
+        ")"
+    )) {
+        qWarning() << "Failed to create recurrence_exceptions table:" << query.lastError().text();
+    }
+
     // Миграция для баз, созданных в более ранних этапах: собираем список
     // уже существующих колонок и добавляем те, которых не хватает.
     // Для новой (только что созданной) базы этот цикл ничего не делает -
@@ -293,6 +308,14 @@ bool EventManager::removeEvent(int id)
     if (!query.exec())
         qWarning() << "Failed to clear executions before delete:" << query.lastError().text();
 
+    // Если удаляемое событие было recurring-шаблоном - его исключения
+    // (Reschedule, MVP3) теряют смысл без самого шаблона, иначе остались
+    // бы сиротами в recurrence_exceptions (тот же принцип, что и выше).
+    query.prepare("DELETE FROM recurrence_exceptions WHERE event_id = :id");
+    query.bindValue(":id", id);
+    if (!query.exec())
+        qWarning() << "Failed to clear recurrence exceptions before delete:" << query.lastError().text();
+
     query.prepare("DELETE FROM events WHERE id = :id");
     query.bindValue(":id", id);
 
@@ -351,7 +374,7 @@ QVector<Event> EventManager::eventsForDate(const QDate &date) const
     // 2. Повторяющиеся события - проверяем каждый шаблон через eventOccursOnDate.
     // Шаблонов обычно немного, поэтому не грузим их каждый по отдельному запросу.
     for (const Event &templateEvent : allRecurringTemplates()) {
-        if (eventOccursOnDate(templateEvent, date)) {
+        if (eventOccursOnDate(templateEvent, date) && !hasRecurrenceException(templateEvent.id, date)) {
             Event occurrence = templateEvent;
             occurrence.date = date; // для отображения показываем именно запрошенную дату
             result.append(occurrence);
@@ -435,7 +458,7 @@ QVector<Event> EventManager::eventsInRange(const QDate &rangeStart, const QDate 
     const QVector<Event> templates = allRecurringTemplates();
     for (QDate day = rangeStart; day <= rangeEnd; day = day.addDays(1)) {
         for (const Event &templateEvent : templates) {
-            if (eventOccursOnDate(templateEvent, day)) {
+            if (eventOccursOnDate(templateEvent, day) && !hasRecurrenceException(templateEvent.id, day)) {
                 Event occurrence = templateEvent;
                 occurrence.date = day;
                 result.append(occurrence);
@@ -679,6 +702,9 @@ NowSnapshot EventManager::nowSnapshot(const QDate &date, const QDateTime &now, i
             hasExecution ? &execution : nullptr, now, gracePeriodMinutes
         );
 
+        if (item.status == ExecutionStatus::Missed)
+            ++snapshot.missedCount;
+
         snapshot.allForDate.append(item);
     }
 
@@ -697,4 +723,117 @@ NowSnapshot EventManager::nowSnapshot(const QDate &date, const QDateTime &now, i
     }
 
     return snapshot;
+}
+
+bool EventManager::hasRecurrenceException(int eventId, const QDate &date) const
+{
+    QSqlQuery query(QSqlDatabase::database(m_connectionName));
+    query.prepare(
+        "SELECT 1 FROM recurrence_exceptions WHERE event_id = :event_id AND excluded_date = :excluded_date"
+    );
+    query.bindValue(":event_id", eventId);
+    query.bindValue(":excluded_date", date.toString(Qt::ISODate));
+
+    if (!query.exec()) {
+        qWarning() << "Failed to check recurrence exception:" << query.lastError().text();
+        return false; // безопасный дефолт - считаем, что не исключено
+    }
+
+    return query.next();
+}
+
+bool EventManager::rescheduleOccurrence(int eventId, const QDate &occurrenceDate,
+                                         const QDate &newDate, const QTime &newStart, const QTime &newEnd,
+                                         int *outNewEventId, const QDateTime &now)
+{
+    if (!newDate.isValid() || !newStart.isValid() || !newEnd.isValid() || newStart >= newEnd)
+        return false;
+
+    Event event;
+    if (!eventById(eventId, event))
+        return false;
+
+    if (event.recurrenceType == RecurrenceType::None) {
+        // Ветка A: разовое событие - вхождение и событие это одна и та же
+        // строка, переносится прямо через updateEvent(). Никакой exception,
+        // никакого нового event_id, Execution не трогается вообще (см.
+        // план - у Planned/Missed execution-записи и так нет).
+        if (occurrenceDate != event.date)
+            return false; // occurrenceDate обязан соответствовать единственной дате разового события
+
+        const ExecutionStatus status = effectiveStatus(
+            event.id, event.date, event.startTime, event.endTime, now);
+        if (status != ExecutionStatus::Planned && status != ExecutionStatus::Missed)
+            return false;
+
+        event.date = newDate;
+        event.startTime = newStart;
+        event.endTime = newEnd;
+        return updateEvent(event);
+    }
+
+    // Ветка B: event - строка ШАБЛОНА серии (event.date здесь - дата якоря,
+    // НЕ occurrenceDate), occurrenceDate - какое конкретно вхождение
+    // переносится. Шаблон ниже не меняется ни единым UPDATE.
+    if (!eventOccursOnDate(event, occurrenceDate))
+        return false; // occurrenceDate - не настоящее вхождение этого шаблона
+
+    if (hasRecurrenceException(event.id, occurrenceDate))
+        return false; // это вхождение уже было перенесено раньше
+
+    const ExecutionStatus status = effectiveStatus(
+        event.id, occurrenceDate, event.startTime, event.endTime, now);
+    if (status != ExecutionStatus::Planned && status != ExecutionStatus::Missed)
+        return false;
+
+    QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+    if (!db.transaction()) {
+        qWarning() << "Failed to start reschedule transaction:" << db.lastError().text();
+        return false;
+    }
+
+    QSqlQuery exceptionQuery(db);
+    exceptionQuery.prepare(
+        "INSERT INTO recurrence_exceptions (event_id, excluded_date) VALUES (:event_id, :excluded_date)"
+    );
+    exceptionQuery.bindValue(":event_id", event.id);
+    exceptionQuery.bindValue(":excluded_date", occurrenceDate.toString(Qt::ISODate));
+    if (!exceptionQuery.exec()) {
+        qWarning() << "Failed to insert recurrence exception:" << exceptionQuery.lastError().text();
+        db.rollback();
+        return false;
+    }
+
+    Event newEvent;
+    newEvent.title = event.title;
+    newEvent.description = event.description;
+    newEvent.date = newDate;
+    newEvent.startTime = newStart;
+    newEvent.endTime = newEnd;
+    newEvent.recurrenceType = RecurrenceType::None;
+    newEvent.priority = event.priority;
+    newEvent.timezone = event.timezone;
+    newEvent.categoryId = event.categoryId;
+    newEvent.pomodorosCompleted = 0; // новое независимое событие - не копия истории серии
+
+    // addEvent() использует QSqlDatabase::database(m_connectionName) - то же
+    // именованное соединение, на котором уже открыта транзакция выше, так
+    // что её INSERT автоматически оказывается частью этой же транзакции,
+    // без единой правки внутри addEvent().
+    const int newEventId = addEvent(newEvent);
+    if (newEventId <= 0) {
+        db.rollback();
+        return false;
+    }
+
+    if (!db.commit()) {
+        qWarning() << "Failed to commit reschedule transaction:" << db.lastError().text();
+        db.rollback();
+        return false;
+    }
+
+    if (outNewEventId)
+        *outNewEventId = newEventId;
+
+    return true;
 }

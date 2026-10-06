@@ -404,6 +404,60 @@ private slots:
         EventWithStatus next;
         QVERIFY(!findNextTask(events, QTime(9, 30), nullptr, next));
     }
+
+    // --- MVP 3.1 - Missed Task ---
+
+    void resolveExecutionStatus_exactBoundaryWithDefaultGracePeriod()
+    {
+        // Пример из самого задания: план 17:30-19:00, grace 60 минут ->
+        // граница Missed - ровно в 20:00. Семантика ЯВНО зафиксирована:
+        // строгое "<" в resolveExecutionStatus() означает, что РОВНО
+        // в 20:00:00 статус ещё Planned, и только начиная с 20:00:01 - Missed.
+        const QDate day(2026, 9, 21);
+        const QTime start(17, 30);
+        const QTime end(19, 0);
+
+        QCOMPARE(resolveExecutionStatus(day, start, end, nullptr, QDateTime(day, QTime(19, 59))),
+                 ExecutionStatus::Planned);
+        QCOMPARE(resolveExecutionStatus(day, start, end, nullptr, QDateTime(day, QTime(20, 0))),
+                 ExecutionStatus::Planned); // граница включительно - ещё Planned
+        QCOMPARE(resolveExecutionStatus(day, start, end, nullptr, QDateTime(day, QTime(20, 0)).addSecs(1)),
+                 ExecutionStatus::Missed);
+    }
+
+    void findCurrentTask_excludesMissedTaskInPractice()
+    {
+        // isLive в findCurrentTask() формально включает Missed в список
+        // "живых" статусов, но это недостижимо на практике: Missed
+        // возникает только когда now уже позже plannedEnd(+grace), а
+        // значит проверка "now <= event.endTime" ниже уже заведомо ложна.
+        // Этот тест фиксирует РЕАЛЬНОЕ поведение на реалистичной
+        // комбинации данных (не синтетический "Missed, но now внутри окна",
+        // которого на практике быть не может).
+        const QVector<EventWithStatus> events = {
+            makeItem("Missed meeting", QTime(9, 0), QTime(10, 0), ExecutionStatus::Missed, 1),
+        };
+
+        EventWithStatus current;
+        QVERIFY(!findCurrentTask(events, QTime(12, 0), current));
+    }
+
+    void findNextTask_excludesMissedTaskInPractice()
+    {
+        // Missed не входит в explicit skip-list findNextTask() (там только
+        // Completed/Cancelled/Postponed) - исключается он через проверку
+        // "startTime <= now", которая для реально Missed-события всегда
+        // истинна (Missed => now > plannedEnd > plannedStart). Тест
+        // фиксирует это реальное поведение.
+        const QVector<EventWithStatus> events = {
+            makeItem("Missed meeting", QTime(9, 0), QTime(10, 0), ExecutionStatus::Missed, 1),
+            makeItem("Still upcoming", QTime(14, 0), QTime(15, 0), ExecutionStatus::Planned, 2),
+        };
+
+        EventWithStatus next;
+        QVERIFY(findNextTask(events, QTime(12, 0), nullptr, next));
+        QCOMPARE(next.event.id, 2);
+    }
 };
 
 QTEST_MAIN(TestExecution)

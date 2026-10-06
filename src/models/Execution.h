@@ -137,6 +137,12 @@ struct NowSnapshot
     bool hasNext = false;
     EventWithStatus next;
     QVector<EventWithStatus> allForDate;
+
+    // Сколько событий дня сейчас Missed - для краткой сводки дня (раздел 2
+    // Product Context). Раньше этот подсчёт существовал только внутри
+    // NowView.cpp (UI), продублирован здесь же, в модели, чтобы быть
+    // тестируемым отдельно от виджета (MVP3.1).
+    int missedCount = 0;
 };
 
 // Среди событий дня (уже с резолвнутым статусом) выбирает то, что

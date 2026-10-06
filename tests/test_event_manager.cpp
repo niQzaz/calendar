@@ -85,6 +85,26 @@ private slots:
     void nowSnapshot_differentDaysYieldIndependentExecutionsForRecurringEvent();
     void nowSnapshot_noCurrentTaskWhenNothingScheduled();
 
+    // --- MVP 3.1 - Missed Task ---
+    void recurringOccurrence_missedTodayDoesNotAffectDifferentOccurrence();
+    void nowSnapshot_missedCountReflectsMissedEvents();
+
+    // --- MVP3 - Reschedule ---
+    void rescheduleOccurrence_oneTimePlanned_updatesDateTimeKeepingSameId();
+    void rescheduleOccurrence_oneTimeMissed_succeeds();
+    void rescheduleOccurrence_oneTimeRunning_rejected();
+    void rescheduleOccurrence_oneTimeCompleted_rejected();
+    void rescheduleOccurrence_recurringPlanned_createsNewOneTimeEventWithCopiedFields();
+    void rescheduleOccurrence_recurringPlanned_originalDisappearsOthersRemain();
+    void rescheduleOccurrence_recurringTemplateUnchangedAfterReschedule();
+    void rescheduleOccurrence_recurringMissed_succeeds();
+    void rescheduleOccurrence_recurringRunning_rejected();
+    void rescheduleOccurrence_recurringCompleted_rejected();
+    void rescheduleOccurrence_duplicateRescheduleOfSameOccurrenceRejected();
+    void rescheduleOccurrence_exceptionForEventADoesNotAffectEventBSameDate();
+    void rescheduleOccurrence_doesNotCreateExecutionForPlannedOrMissed();
+    void rescheduleOccurrence_newEventCanSubsequentlyStartAndComplete();
+
 private:
     EventManager *m_manager = nullptr;
 };
@@ -920,6 +940,452 @@ void TestEventManager::nowSnapshot_noCurrentTaskWhenNothingScheduled()
 
     QVERIFY(!snapshot.hasCurrent);
     QVERIFY(snapshot.allForDate.isEmpty());
+}
+
+void TestEventManager::recurringOccurrence_missedTodayDoesNotAffectDifferentOccurrence()
+{
+    // Раздел "Recurring tasks" задания: "Математика" 1 октября пропущена -
+    // это не должно менять статус "Математика" 2 октября. Используем один
+    // и тот же event_id, два разных occurrenceDate, один и тот же "now".
+    Event daily;
+    daily.title = QStringLiteral("Math");
+    daily.date = QDate(2026, 9, 21);
+    daily.startTime = QTime(13, 0);
+    daily.endTime = QTime(14, 0);
+    daily.recurrenceType = RecurrenceType::Daily;
+    const int eventId = m_manager->addEvent(daily);
+    QVERIFY(eventId > 0);
+
+    const QDate today(2026, 9, 21);
+    const QDate tomorrow(2026, 9, 22);
+
+    // "Сейчас" - вечером today (далеко за gracePeriod для today-вхождения),
+    // но задолго ДО планового начала tomorrow-вхождения.
+    const QDateTime now(today, QTime(20, 0));
+
+    QCOMPARE(
+        m_manager->effectiveStatus(eventId, today, daily.startTime, daily.endTime, now),
+        ExecutionStatus::Missed
+    );
+    QCOMPARE(
+        m_manager->effectiveStatus(eventId, tomorrow, daily.startTime, daily.endTime, now),
+        ExecutionStatus::Planned // то же "now", но для tomorrow оно ещё задолго до окна - не затронуто
+    );
+}
+
+void TestEventManager::nowSnapshot_missedCountReflectsMissedEvents()
+{
+    Event missedOne;
+    missedOne.title = QStringLiteral("Missed A");
+    missedOne.date = QDate(2026, 9, 21);
+    missedOne.startTime = QTime(9, 0);
+    missedOne.endTime = QTime(10, 0);
+    QVERIFY(m_manager->addEvent(missedOne) > 0);
+
+    Event missedTwo;
+    missedTwo.title = QStringLiteral("Missed B");
+    missedTwo.date = QDate(2026, 9, 21);
+    missedTwo.startTime = QTime(11, 0);
+    missedTwo.endTime = QTime(12, 0);
+    QVERIFY(m_manager->addEvent(missedTwo) > 0);
+
+    Event stillPlanned;
+    stillPlanned.title = QStringLiteral("Not yet");
+    stillPlanned.date = QDate(2026, 9, 21);
+    stillPlanned.startTime = QTime(16, 0);
+    stillPlanned.endTime = QTime(17, 0);
+    QVERIFY(m_manager->addEvent(stillPlanned) > 0);
+
+    // "Сейчас" - после grace period для первых двух, но задолго до третьего.
+    const QDate day(2026, 9, 21);
+    const QDateTime now(day, QTime(14, 0));
+    const NowSnapshot snapshot = m_manager->nowSnapshot(day, now);
+
+    QCOMPARE(snapshot.missedCount, 2);
+    QCOMPARE(snapshot.allForDate.size(), 3);
+}
+
+void TestEventManager::rescheduleOccurrence_oneTimePlanned_updatesDateTimeKeepingSameId()
+{
+    Event event;
+    event.title = QStringLiteral("Dentist");
+    event.date = QDate(2026, 9, 21);
+    event.startTime = QTime(17, 30);
+    event.endTime = QTime(19, 0);
+    const int eventId = m_manager->addEvent(event);
+    QVERIFY(eventId > 0);
+
+    const QDate newDate(2026, 9, 21);
+    const QTime newStart(20, 0);
+    const QTime newEnd(21, 0);
+    const QDateTime now(event.date, QTime(10, 0)); // задолго до окна - Planned
+
+    QVERIFY(m_manager->rescheduleOccurrence(eventId, event.date, newDate, newStart, newEnd, nullptr, now));
+
+    Event stored;
+    QVERIFY(m_manager->eventById(eventId, stored));
+    QCOMPARE(stored.id, eventId); // id не изменился - та же строка
+    QCOMPARE(stored.date, newDate);
+    QCOMPARE(stored.startTime, newStart);
+    QCOMPARE(stored.endTime, newEnd);
+}
+
+void TestEventManager::rescheduleOccurrence_oneTimeMissed_succeeds()
+{
+    Event event;
+    event.title = QStringLiteral("Forgotten task");
+    event.date = QDate(2026, 9, 21);
+    event.startTime = QTime(9, 0);
+    event.endTime = QTime(10, 0);
+    const int eventId = m_manager->addEvent(event);
+    QVERIFY(eventId > 0);
+
+    // "Сейчас" - на 2 часа позже plannedEnd, дальше default grace period (60 мин).
+    const QDateTime now(event.date, QTime(12, 0));
+
+    QVERIFY(m_manager->rescheduleOccurrence(
+        eventId, event.date, QDate(2026, 9, 22), QTime(10, 0), QTime(11, 0), nullptr, now));
+
+    Event stored;
+    QVERIFY(m_manager->eventById(eventId, stored));
+    QCOMPARE(stored.date, QDate(2026, 9, 22));
+}
+
+void TestEventManager::rescheduleOccurrence_oneTimeRunning_rejected()
+{
+    Event event;
+    event.title = QStringLiteral("Deep work");
+    event.date = QDate(2026, 9, 21);
+    event.startTime = QTime(9, 0);
+    event.endTime = QTime(10, 0);
+    const int eventId = m_manager->addEvent(event);
+    QVERIFY(eventId > 0);
+
+    QVERIFY(m_manager->startOccurrence(eventId, event.date, QDateTime(event.date, QTime(9, 5))));
+
+    const QDateTime now(event.date, QTime(9, 30));
+    QVERIFY(!m_manager->rescheduleOccurrence(
+        eventId, event.date, QDate(2026, 9, 22), QTime(10, 0), QTime(11, 0), nullptr, now));
+
+    Event stored;
+    QVERIFY(m_manager->eventById(eventId, stored));
+    QCOMPARE(stored.date, event.date); // ничего не изменилось
+    QCOMPARE(stored.startTime, event.startTime);
+}
+
+void TestEventManager::rescheduleOccurrence_oneTimeCompleted_rejected()
+{
+    Event event;
+    event.title = QStringLiteral("Quick task");
+    event.date = QDate(2026, 9, 21);
+    event.startTime = QTime(9, 0);
+    event.endTime = QTime(9, 15);
+    const int eventId = m_manager->addEvent(event);
+    QVERIFY(eventId > 0);
+
+    QVERIFY(m_manager->completeOccurrence(eventId, event.date, QDateTime(event.date, QTime(9, 10))));
+
+    const QDateTime now(event.date, QTime(9, 30));
+    QVERIFY(!m_manager->rescheduleOccurrence(
+        eventId, event.date, QDate(2026, 9, 22), QTime(10, 0), QTime(11, 0), nullptr, now));
+
+    Event stored;
+    QVERIFY(m_manager->eventById(eventId, stored));
+    QCOMPARE(stored.date, event.date);
+}
+
+void TestEventManager::rescheduleOccurrence_recurringPlanned_createsNewOneTimeEventWithCopiedFields()
+{
+    Category category;
+    category.name = QStringLiteral("Study");
+    category.color = QStringLiteral("#4A90D9");
+    const int categoryId = m_manager->addCategory(category);
+    QVERIFY(categoryId > 0);
+
+    Event weekly;
+    weekly.title = QStringLiteral("Math");
+    weekly.description = QStringLiteral("Weekly math class");
+    weekly.date = QDate(2026, 9, 21); // понедельник - якорь серии
+    weekly.startTime = QTime(17, 30);
+    weekly.endTime = QTime(19, 0);
+    weekly.recurrenceType = RecurrenceType::Weekly;
+    weekly.priority = 2;
+    weekly.timezone = QStringLiteral("Europe/Moscow");
+    weekly.categoryId = categoryId;
+    const int templateId = m_manager->addEvent(weekly);
+    QVERIFY(templateId > 0);
+
+    const QDate occurrenceDate(2026, 9, 21);
+    const QDate newDate(2026, 9, 22);
+    const QTime newStart(20, 0);
+    const QTime newEnd(21, 30);
+    const QDateTime now(occurrenceDate, QTime(10, 0)); // задолго до окна - Planned
+
+    int newEventId = -1;
+    QVERIFY(m_manager->rescheduleOccurrence(
+        templateId, occurrenceDate, newDate, newStart, newEnd, &newEventId, now));
+    QVERIFY(newEventId > 0);
+    QVERIFY(newEventId != templateId); // новый, самостоятельный id
+
+    Event newEvent;
+    QVERIFY(m_manager->eventById(newEventId, newEvent));
+    QCOMPARE(newEvent.title, QStringLiteral("Math"));
+    QCOMPARE(newEvent.description, QStringLiteral("Weekly math class"));
+    QCOMPARE(newEvent.date, newDate);
+    QCOMPARE(newEvent.startTime, newStart);
+    QCOMPARE(newEvent.endTime, newEnd);
+    QCOMPARE(newEvent.recurrenceType, RecurrenceType::None);
+    QCOMPARE(newEvent.priority, 2);
+    QCOMPARE(newEvent.timezone, QStringLiteral("Europe/Moscow"));
+    QCOMPARE(newEvent.categoryId, categoryId);
+    QCOMPARE(newEvent.pomodorosCompleted, 0); // не копия истории серии
+}
+
+void TestEventManager::rescheduleOccurrence_recurringPlanned_originalDisappearsOthersRemain()
+{
+    Event weekly;
+    weekly.title = QStringLiteral("Math");
+    weekly.date = QDate(2026, 9, 21); // понедельник
+    weekly.startTime = QTime(17, 30);
+    weekly.endTime = QTime(19, 0);
+    weekly.recurrenceType = RecurrenceType::Weekly;
+    const int templateId = m_manager->addEvent(weekly);
+    QVERIFY(templateId > 0);
+
+    const QDate occurrenceDate(2026, 9, 21);  // переносим этот понедельник
+    const QDate otherOccurrence(2026, 9, 28); // следующий понедельник - должен остаться
+    const QDate newDate(2026, 9, 22);
+    const QDateTime now(occurrenceDate, QTime(10, 0));
+
+    QVERIFY(m_manager->rescheduleOccurrence(
+        templateId, occurrenceDate, newDate, QTime(20, 0), QTime(21, 30), nullptr, now));
+
+    // Старая дата - для этого шаблона события больше нет вообще (NOW-related:
+    // та же eventsForDate(), на которой строится nowSnapshot()).
+    const QVector<Event> onOldDate = m_manager->eventsForDate(occurrenceDate);
+    for (const Event &e : onOldDate)
+        QVERIFY(e.id != templateId);
+
+    // Новая дата - новое событие появилось.
+    const QVector<Event> onNewDate = m_manager->eventsForDate(newDate);
+    bool foundOnNewDate = false;
+    for (const Event &e : onNewDate) {
+        if (e.title == QStringLiteral("Math"))
+            foundOnNewDate = true;
+    }
+    QVERIFY(foundOnNewDate);
+
+    // Следующий понедельник серии - не затронут переносом.
+    const QVector<Event> onOtherOccurrence = m_manager->eventsForDate(otherOccurrence);
+    bool foundOther = false;
+    for (const Event &e : onOtherOccurrence) {
+        if (e.id == templateId)
+            foundOther = true;
+    }
+    QVERIFY(foundOther);
+}
+
+void TestEventManager::rescheduleOccurrence_recurringTemplateUnchangedAfterReschedule()
+{
+    Event weekly;
+    weekly.title = QStringLiteral("Math");
+    weekly.date = QDate(2026, 9, 21);
+    weekly.startTime = QTime(17, 30);
+    weekly.endTime = QTime(19, 0);
+    weekly.recurrenceType = RecurrenceType::Weekly;
+    weekly.recurrenceInterval = 1;
+    const int templateId = m_manager->addEvent(weekly);
+    QVERIFY(templateId > 0);
+
+    const QDateTime now(QDate(2026, 9, 21), QTime(10, 0));
+    QVERIFY(m_manager->rescheduleOccurrence(
+        templateId, QDate(2026, 9, 21), QDate(2026, 9, 22), QTime(20, 0), QTime(21, 30), nullptr, now));
+
+    Event templateAfter;
+    QVERIFY(m_manager->eventById(templateId, templateAfter));
+    QCOMPARE(templateAfter.date, QDate(2026, 9, 21));                  // якорь не изменился
+    QCOMPARE(templateAfter.startTime, QTime(17, 30));                  // время шаблона не изменилось
+    QCOMPARE(templateAfter.endTime, QTime(19, 0));
+    QCOMPARE(templateAfter.recurrenceType, RecurrenceType::Weekly);    // правило то же
+    QCOMPARE(templateAfter.recurrenceInterval, 1);
+}
+
+void TestEventManager::rescheduleOccurrence_recurringMissed_succeeds()
+{
+    Event weekly;
+    weekly.title = QStringLiteral("Math");
+    weekly.date = QDate(2026, 9, 21);
+    weekly.startTime = QTime(17, 30);
+    weekly.endTime = QTime(19, 0);
+    weekly.recurrenceType = RecurrenceType::Weekly;
+    const int templateId = m_manager->addEvent(weekly);
+    QVERIFY(templateId > 0);
+
+    // "Сейчас" - на следующий день, далеко за gracePeriod для 21.09-вхождения.
+    const QDateTime now(QDate(2026, 9, 22), QTime(9, 0));
+
+    int newEventId = -1;
+    QVERIFY(m_manager->rescheduleOccurrence(
+        templateId, QDate(2026, 9, 21), QDate(2026, 9, 23), QTime(10, 0), QTime(11, 0), &newEventId, now));
+    QVERIFY(newEventId > 0);
+}
+
+void TestEventManager::rescheduleOccurrence_recurringRunning_rejected()
+{
+    Event weekly;
+    weekly.title = QStringLiteral("Math");
+    weekly.date = QDate(2026, 9, 21);
+    weekly.startTime = QTime(17, 30);
+    weekly.endTime = QTime(19, 0);
+    weekly.recurrenceType = RecurrenceType::Weekly;
+    const int templateId = m_manager->addEvent(weekly);
+    QVERIFY(templateId > 0);
+
+    QVERIFY(m_manager->startOccurrence(
+        templateId, QDate(2026, 9, 21), QDateTime(QDate(2026, 9, 21), QTime(17, 35))));
+
+    const QDateTime now(QDate(2026, 9, 21), QTime(18, 0));
+    int newEventId = -1;
+    QVERIFY(!m_manager->rescheduleOccurrence(
+        templateId, QDate(2026, 9, 21), QDate(2026, 9, 22), QTime(20, 0), QTime(21, 0), &newEventId, now));
+    QCOMPARE(newEventId, -1); // не заполнен - ничего не создано
+
+    // Шаблон не пострадал - другие вхождения серии по-прежнему генерируются.
+    QVERIFY(!m_manager->eventsForDate(QDate(2026, 9, 28)).isEmpty());
+}
+
+void TestEventManager::rescheduleOccurrence_recurringCompleted_rejected()
+{
+    Event weekly;
+    weekly.title = QStringLiteral("Math");
+    weekly.date = QDate(2026, 9, 21);
+    weekly.startTime = QTime(17, 30);
+    weekly.endTime = QTime(19, 0);
+    weekly.recurrenceType = RecurrenceType::Weekly;
+    const int templateId = m_manager->addEvent(weekly);
+    QVERIFY(templateId > 0);
+
+    QVERIFY(m_manager->completeOccurrence(
+        templateId, QDate(2026, 9, 21), QDateTime(QDate(2026, 9, 21), QTime(18, 30))));
+
+    const QDateTime now(QDate(2026, 9, 21), QTime(19, 30));
+    QVERIFY(!m_manager->rescheduleOccurrence(
+        templateId, QDate(2026, 9, 21), QDate(2026, 9, 22), QTime(20, 0), QTime(21, 0), nullptr, now));
+}
+
+void TestEventManager::rescheduleOccurrence_duplicateRescheduleOfSameOccurrenceRejected()
+{
+    Event weekly;
+    weekly.title = QStringLiteral("Math");
+    weekly.date = QDate(2026, 9, 21);
+    weekly.startTime = QTime(17, 30);
+    weekly.endTime = QTime(19, 0);
+    weekly.recurrenceType = RecurrenceType::Weekly;
+    const int templateId = m_manager->addEvent(weekly);
+    QVERIFY(templateId > 0);
+
+    const QDateTime now(QDate(2026, 9, 21), QTime(10, 0));
+    QVERIFY(m_manager->rescheduleOccurrence(
+        templateId, QDate(2026, 9, 21), QDate(2026, 9, 22), QTime(20, 0), QTime(21, 0), nullptr, now));
+
+    // Повторная попытка перенести ТО ЖЕ вхождение - отклоняется
+    // (hasRecurrenceException() для этой пары уже true).
+    int secondAttemptId = -1;
+    QVERIFY(!m_manager->rescheduleOccurrence(
+        templateId, QDate(2026, 9, 21), QDate(2026, 9, 25), QTime(9, 0), QTime(10, 0), &secondAttemptId, now));
+    QCOMPARE(secondAttemptId, -1);
+}
+
+void TestEventManager::rescheduleOccurrence_exceptionForEventADoesNotAffectEventBSameDate()
+{
+    Event mathWeekly;
+    mathWeekly.title = QStringLiteral("Math");
+    mathWeekly.date = QDate(2026, 9, 21);
+    mathWeekly.startTime = QTime(17, 30);
+    mathWeekly.endTime = QTime(19, 0);
+    mathWeekly.recurrenceType = RecurrenceType::Weekly;
+    const int mathId = m_manager->addEvent(mathWeekly);
+    QVERIFY(mathId > 0);
+
+    Event historyWeekly;
+    historyWeekly.title = QStringLiteral("History");
+    historyWeekly.date = QDate(2026, 9, 21); // та же дата якоря
+    historyWeekly.startTime = QTime(10, 0);
+    historyWeekly.endTime = QTime(11, 0);
+    historyWeekly.recurrenceType = RecurrenceType::Weekly;
+    const int historyId = m_manager->addEvent(historyWeekly);
+    QVERIFY(historyId > 0);
+
+    const QDateTime now(QDate(2026, 9, 21), QTime(9, 0));
+    QVERIFY(m_manager->rescheduleOccurrence(
+        mathId, QDate(2026, 9, 21), QDate(2026, 9, 22), QTime(20, 0), QTime(21, 0), nullptr, now));
+
+    // History на той же исходной дате не затронута переносом Math.
+    const QVector<Event> onOriginalDate = m_manager->eventsForDate(QDate(2026, 9, 21));
+    bool historyStillThere = false;
+    bool mathStillThere = false;
+    for (const Event &e : onOriginalDate) {
+        if (e.id == historyId) historyStillThere = true;
+        if (e.id == mathId) mathStillThere = true;
+    }
+    QVERIFY(historyStillThere);
+    QVERIFY(!mathStillThere);
+}
+
+void TestEventManager::rescheduleOccurrence_doesNotCreateExecutionForPlannedOrMissed()
+{
+    Event event;
+    event.title = QStringLiteral("One-off");
+    event.date = QDate(2026, 9, 21);
+    event.startTime = QTime(9, 0);
+    event.endTime = QTime(10, 0);
+    const int eventId = m_manager->addEvent(event);
+    QVERIFY(eventId > 0);
+
+    const QDateTime now(event.date, QTime(9, 30)); // Planned
+    const QDate newDate(2026, 9, 22);
+    QVERIFY(m_manager->rescheduleOccurrence(
+        eventId, event.date, newDate, QTime(10, 0), QTime(11, 0), nullptr, now));
+
+    EventExecution execOld;
+    QVERIFY(!m_manager->executionForOccurrence(eventId, event.date, execOld));
+    EventExecution execNew;
+    QVERIFY(!m_manager->executionForOccurrence(eventId, newDate, execNew));
+}
+
+void TestEventManager::rescheduleOccurrence_newEventCanSubsequentlyStartAndComplete()
+{
+    Event weekly;
+    weekly.title = QStringLiteral("Math");
+    weekly.date = QDate(2026, 9, 21);
+    weekly.startTime = QTime(17, 30);
+    weekly.endTime = QTime(19, 0);
+    weekly.recurrenceType = RecurrenceType::Weekly;
+    const int templateId = m_manager->addEvent(weekly);
+    QVERIFY(templateId > 0);
+
+    const QDateTime now(QDate(2026, 9, 21), QTime(10, 0));
+    int newEventId = -1;
+    QVERIFY(m_manager->rescheduleOccurrence(
+        templateId, QDate(2026, 9, 21), QDate(2026, 9, 22), QTime(20, 0), QTime(21, 0), &newEventId, now));
+    QVERIFY(newEventId > 0);
+
+    const QDate newDate(2026, 9, 22);
+    const QDateTime startedAt(newDate, QTime(20, 5));
+    QVERIFY(m_manager->startOccurrence(newEventId, newDate, startedAt));
+
+    EventExecution running;
+    QVERIFY(m_manager->executionForOccurrence(newEventId, newDate, running));
+    QCOMPARE(running.status, ExecutionStatus::Running);
+
+    const QDateTime completedAt(newDate, QTime(20, 50));
+    QVERIFY(m_manager->completeOccurrence(newEventId, newDate, completedAt));
+
+    EventExecution completed;
+    QVERIFY(m_manager->executionForOccurrence(newEventId, newDate, completed));
+    QCOMPARE(completed.status, ExecutionStatus::Completed);
+    QCOMPARE(completed.actualStart, startedAt);
+    QCOMPARE(completed.actualEnd, completedAt);
 }
 
 QTEST_MAIN(TestEventManager)
