@@ -1,0 +1,99 @@
+# ==============================
+# Build directories
+# ==============================
+build/
+cmake-build-*/
+out/
+debug/
+release/
+Debug/
+Release/
+
+# ==============================
+# Qt Creator
+# ==============================
+*.pro.user
+*.pro.user.*
+*.qbs.user
+*.qmlproject.user
+*.creator.user
+*.creator.user.*
+*.autosave
+CMakeLists.txt.user*
+.qtcreator/
+
+# ==============================
+# CMake
+# ==============================
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+CTestTestfile.cmake
+Makefile
+.ninja_deps
+.ninja_log
+build.ninja
+install_manifest.txt
+
+# ==============================
+# Compiled files
+# ==============================
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dll
+*.dylib
+*.exe
+*.app/
+*.class
+
+# ==============================
+# Qt generated files
+# ==============================
+moc_*.cpp
+moc_*.h
+ui_*.h
+qrc_*.cpp
+*.qmlc
+*.jsc
+
+# ==============================
+# Databases and local data
+# ==============================
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+*.sqlite-shm
+*.sqlite-wal
+
+# ==============================
+# Logs and temporary files
+# ==============================
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ==============================
+# IDEs
+# ==============================
+.idea/
+.vscode/
+
+# ==============================
+# Environment and secrets
+# ==============================
+.env
+.env.*
+!.env.example
+
