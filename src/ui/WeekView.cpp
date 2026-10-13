@@ -34,6 +34,7 @@ WeekView::WeekView(QWidget *parent)
     connect(m_grid, &TimeGridView::createEventRequested, this, &WeekView::createEventRequested);
     connect(m_grid, &TimeGridView::editEventRequested, this, &WeekView::editEventRequested);
     connect(m_grid, &TimeGridView::eventRescheduled, this, &WeekView::eventRescheduled);
+    connect(m_grid, &TimeGridView::eventSelected, this, &WeekView::eventSelected);
 
     rebuildColumnDates();
 

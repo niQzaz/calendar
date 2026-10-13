@@ -94,6 +94,7 @@ CalendarView::CalendarView(QWidget *parent)
     connect(m_weekView, &WeekView::createEventRequested, this, &CalendarView::createEventRequestedWithTime);
     connect(m_weekView, &WeekView::editEventRequested, this, &CalendarView::editEventRequested);
     connect(m_weekView, &WeekView::eventRescheduled, this, &CalendarView::eventRescheduled);
+    connect(m_weekView, &WeekView::eventSelected, this, &CalendarView::eventSelected);
 
     // DayView (Phase F) - переиспользует тот же TimeGridView, что и WeekView,
     // поэтому сигналы того же вида и подключаются точно так же.
@@ -102,6 +103,7 @@ CalendarView::CalendarView(QWidget *parent)
     connect(m_dayView, &DayView::createEventRequested, this, &CalendarView::createEventRequestedWithTime);
     connect(m_dayView, &DayView::editEventRequested, this, &CalendarView::editEventRequested);
     connect(m_dayView, &DayView::eventRescheduled, this, &CalendarView::eventRescheduled);
+    connect(m_dayView, &DayView::eventSelected, this, &CalendarView::eventSelected);
 
     setViewMode(CalendarViewMode::Month);
 }

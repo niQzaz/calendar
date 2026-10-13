@@ -44,6 +44,10 @@ signals:
     // просто ретранслируется из TimeGridView, см. его комментарий к сигналу.
     void eventRescheduled(int eventId, const QDate &newDate, const QTime &newStartTime, const QTime &newEndTime);
 
+    // Выбор события кликом (Stage B) - просто ретранслируется из
+    // TimeGridView, см. его комментарий к сигналу.
+    void eventSelected(int eventId, const QDate &occurrenceDate);
+
     // Для Day View start == end == currentDate() - сигнал всё равно нужен,
     // чтобы MainWindow знал, когда подгружать события заново (навигация
     // по дням меняет currentDate()).

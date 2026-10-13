@@ -85,6 +85,11 @@ signals:
     // приходит от WeekView или DayView (в MonthView drag пока не реализован).
     void eventRescheduled(int eventId, const QDate &newDate, const QTime &newStartTime, const QTime &newEndTime);
 
+    // Выбор события кликом в Week/Day (Stage B) - приходит от WeekView
+    // или DayView (в Month выбор идёт отдельным путём, через m_eventsList
+    // напрямую в MainWindow, не через этот сигнал).
+    void eventSelected(int eventId, const QDate &occurrenceDate);
+
 private slots:
     void onPreviousClicked();
     void onNextClicked();

@@ -386,7 +386,7 @@ void TimeGridView::mousePressEvent(QMouseEvent *event)
     const HitEvent *hit = hitTestFull(event->pos());
     if (hit) {
         setSelectedEventId(hit->event.id);
-        emit eventSelected(hit->event.id);
+        emit eventSelected(hit->event.id, hit->event.date);
 
         // Перетаскивать/растягивать можно только НЕ повторяющиеся события.
         // Повторяющееся вхождение - это не отдельная запись в БД, а

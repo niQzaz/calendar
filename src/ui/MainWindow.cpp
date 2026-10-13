@@ -108,6 +108,11 @@ MainWindow::MainWindow(QWidget *parent)
     m_completeTaskButton = new QPushButton("Complete", m_rightPanel);
     m_completeTaskButton->setObjectName("panelButton");
     m_completeTaskButton->setEnabled(false);
+    // Stage B - точка входа подготовлена, сам выбор новой даты/времени -
+    // следующий этап (см. onRescheduleClicked()).
+    m_rescheduleButton = new QPushButton("Reschedule", m_rightPanel);
+    m_rescheduleButton->setObjectName("panelButton");
+    m_rescheduleButton->setEnabled(false);
     m_taskStatusLabel = new QLabel(m_rightPanel);
     m_taskStatusLabel->setObjectName("hintLabel");
 
@@ -119,6 +124,7 @@ MainWindow::MainWindow(QWidget *parent)
     rightLayout->addWidget(m_startPomodoroButton);
     rightLayout->addWidget(m_startTaskButton);
     rightLayout->addWidget(m_completeTaskButton);
+    rightLayout->addWidget(m_rescheduleButton);
     rightLayout->addWidget(m_taskStatusLabel);
 
     auto *splitter = new QSplitter(this);
@@ -147,6 +153,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_startPomodoroButton, &QPushButton::clicked, this, &MainWindow::onStartPomodoroClicked);
     connect(m_startTaskButton, &QPushButton::clicked, this, &MainWindow::onStartTaskClicked);
     connect(m_completeTaskButton, &QPushButton::clicked, this, &MainWindow::onCompleteTaskClicked);
+    connect(m_rescheduleButton, &QPushButton::clicked, this, &MainWindow::onRescheduleClicked);
     connect(m_pomodoro, &PomodoroWidget::pomodoroCompletedForEvent, this, &MainWindow::onPomodoroCompletedForEvent);
     connect(m_pomodoro, &PomodoroWidget::startCurrentTaskRequested, this, &MainWindow::onStartCurrentTaskClicked);
     connect(m_calendarView, &CalendarView::visibleRangeChanged, this, &MainWindow::onVisibleRangeChanged);
@@ -155,6 +162,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_calendarView, &CalendarView::editEventRequested, this, &MainWindow::onEditEventRequested);
     connect(m_calendarView, &CalendarView::eventRescheduled, this, &MainWindow::onEventRescheduled);
     connect(m_calendarView, &CalendarView::viewModeChanged, this, &MainWindow::onCalendarViewModeChanged);
+    connect(m_calendarView, &CalendarView::eventSelected, this, &MainWindow::onEventSelected);
 
     // Инициализируем правую панель для дня, который CalendarView
     // выбрал по умолчанию (сегодня), и сразу подсвечиваем в сетке дни,
@@ -226,11 +234,14 @@ void MainWindow::refreshEventsList()
             item->setToolTip(event.description);
     }
 
-    m_deleteEventButton->setEnabled(false);
-    m_startPomodoroButton->setEnabled(false);
-    m_startTaskButton->setEnabled(false);
-    m_completeTaskButton->setEnabled(false);
-    m_taskStatusLabel->clear();
+    // Как и раньше - список перестроен заново (новые QListWidgetItem),
+    // прежнее выделение больше не на что указывать, поэтому общий контекст
+    // выбора сбрасывается. Это то же поведение, что было и до Stage B,
+    // просто теперь выражено через общий механизм, а не ручным сбросом
+    // пяти виджетов по отдельности.
+    m_selectedEventId = -1;
+    m_selectedOccurrenceDate = QDate();
+    updateTaskActionButtons();
 
     refreshNowView();
 }
@@ -265,12 +276,22 @@ void MainWindow::onVisibleRangeChanged(const QDate &start, const QDate &end)
 
 void MainWindow::onCalendarViewModeChanged(CalendarViewMode mode)
 {
-    // Панель со списком событий имеет смысл только в Month View - в Week/Day
-    // события показываются прямо внутри временной сетки, отдельный список
-    // там дублировал бы ту же информацию. Pomodoro-панель пока не трогаем -
-    // её возможный переезд в шапку окна обсуждали отдельно, в текущие
-    // фазы это не входит.
-    m_rightPanel->setVisible(mode == CalendarViewMode::Month);
+    // Stage B: панель действий теперь нужна и в Week/Day (не только
+    // в Month, как было раньше) - список m_eventsList внутри неё по-прежнему
+    // смысл имеет только в Month (дублировал бы сетку в Week/Day), но сами
+    // кнопки действий (Start/Complete/Reschedule/Delete/Pomodoro) и статус-
+    // лейбл теперь нужны во всех трёх. Скрываем панель только в Now - у неё
+    // свой отдельный экран, эта панель туда не переносится. Pomodoro-панель
+    // (отдельный виджет сплиттера) не трогаем - как и раньше.
+    m_rightPanel->setVisible(mode != CalendarViewMode::Now);
+
+    // Переключение режима обесценивает предыдущее выделение - иначе
+    // кнопки продолжали бы действовать над occurrence из уже покинутого
+    // режима (выбор в Week "пережил" бы переход в Day, и наоборот).
+    m_selectedEventId = -1;
+    m_selectedOccurrenceDate = QDate();
+    m_eventsList->clearSelection();
+    updateTaskActionButtons();
 }
 
 void MainWindow::onAddEventClicked()
@@ -304,35 +325,62 @@ void MainWindow::openNewEventDialog(const QDate &defaultDate, const QTime &defau
 
 void MainWindow::onEventSelectionChanged()
 {
+    // Month: источник выбора - клик в m_eventsList. Список всегда наполнен
+    // для одной конкретной даты (см. refreshEventsList()), и в Month-режиме
+    // m_calendarView->selectedDate() как раз и есть эта дата - в отличие
+    // от Week/Day, где этот же вызов вернул бы дату MonthView, а не того,
+    // что реально выбрано (см. Inspect-отчёт Stage B).
     QListWidgetItem *item = m_eventsList->currentItem();
-    const bool hasSelection = item != nullptr;
+    if (item) {
+        m_selectedEventId = item->data(Qt::UserRole).toInt();
+        m_selectedOccurrenceDate = m_calendarView->selectedDate();
+    } else {
+        m_selectedEventId = -1;
+        m_selectedOccurrenceDate = QDate();
+    }
+
+    updateTaskActionButtons();
+}
+
+void MainWindow::onEventSelected(int eventId, const QDate &occurrenceDate)
+{
+    // Week/Day: источник выбора - клик по блоку события в TimeGridView,
+    // пришедший через CalendarView::eventSelected. occurrenceDate здесь
+    // уже корректна для конкретного вхождения (см. комментарий к сигналу
+    // в TimeGridView.h) - вычислять её отдельно не нужно, в отличие от
+    // Month-пути выше.
+    m_selectedEventId = eventId;
+    m_selectedOccurrenceDate = occurrenceDate;
+
+    updateTaskActionButtons();
+}
+
+void MainWindow::updateTaskActionButtons()
+{
+    const bool hasSelection = m_selectedEventId >= 0 && m_selectedOccurrenceDate.isValid();
     m_deleteEventButton->setEnabled(hasSelection);
     m_startPomodoroButton->setEnabled(hasSelection);
 
     if (!hasSelection) {
         m_startTaskButton->setEnabled(false);
         m_completeTaskButton->setEnabled(false);
+        m_rescheduleButton->setEnabled(false);
         m_taskStatusLabel->clear();
         return;
     }
 
     Event event;
-    if (!m_eventManager.eventById(item->data(Qt::UserRole).toInt(), event)) {
+    if (!m_eventManager.eventById(m_selectedEventId, event)) {
         m_startTaskButton->setEnabled(false);
         m_completeTaskButton->setEnabled(false);
+        m_rescheduleButton->setEnabled(false);
         m_taskStatusLabel->clear();
         return;
     }
 
-    // Вхождение - та же дата, что сейчас выбрана в календаре: весь список
-    // m_eventsList всегда наполняется для одной конкретной даты (см.
-    // refreshEventsList()), так что дата события из БД тут не подходит
-    // напрямую для повторяющегося события (event.date после eventById() -
-    // это дата ЯКОРЯ серии, а не текущего вхождения).
-    const QDate occurrenceDate = m_calendarView->selectedDate();
     const QDateTime now = QDateTime::currentDateTime();
     const ExecutionStatus status = m_eventManager.effectiveStatus(
-        event.id, occurrenceDate, event.startTime, event.endTime, now);
+        event.id, m_selectedOccurrenceDate, event.startTime, event.endTime, now);
 
     // Start доступен, пока ничего не завершено/не отменено/не перенесено -
     // включая Missed (реально сделать позже пропущенного окна - нормальный
@@ -342,6 +390,10 @@ void MainWindow::onEventSelectionChanged()
     // (с предварительным Start и без).
     m_completeTaskButton->setEnabled(
         status == ExecutionStatus::Planned || status == ExecutionStatus::Running || status == ExecutionStatus::Missed);
+    // То же условие, что у Start - ровно то, что уже разрешает
+    // EventManager::rescheduleOccurrence() (Running/Completed отклоняются
+    // там же, на уровне backend, это просто отражение того же правила в UI).
+    m_rescheduleButton->setEnabled(status == ExecutionStatus::Planned || status == ExecutionStatus::Missed);
 
     switch (status) {
     case ExecutionStatus::Planned:
@@ -350,7 +402,7 @@ void MainWindow::onEventSelectionChanged()
     case ExecutionStatus::Running: {
         EventExecution execution;
         QString since;
-        if (m_eventManager.executionForOccurrence(event.id, occurrenceDate, execution) && execution.actualStart.isValid())
+        if (m_eventManager.executionForOccurrence(event.id, m_selectedOccurrenceDate, execution) && execution.actualStart.isValid())
             since = QString(" (since %1)").arg(execution.actualStart.toString("HH:mm"));
         m_taskStatusLabel->setText("Running" + since);
         break;
@@ -368,6 +420,19 @@ void MainWindow::onEventSelectionChanged()
         m_taskStatusLabel->setText("Cancelled");
         break;
     }
+}
+
+void MainWindow::onRescheduleClicked()
+{
+    // Stage B умышленно не включает выбор новой даты/времени - кнопка уже
+    // корректно доступна только для Planned/Missed (см. updateTaskActionButtons()),
+    // но реального переноса не делает, чтобы не вызывать rescheduleOccurrence()
+    // с придуманными значениями. Точка входа подготовлена для следующего этапа.
+    QMessageBox::information(
+        this, "Reschedule",
+        "Choosing a new date/time isn't built yet - this button will be "
+        "connected to it in the next stage."
+    );
 }
 
 void MainWindow::onEventDoubleClicked(QListWidgetItem *item)
@@ -429,21 +494,14 @@ void MainWindow::onEventRescheduled(int eventId, const QDate &newDate, const QTi
 
 void MainWindow::onStartPomodoroClicked()
 {
-    QListWidgetItem *item = m_eventsList->currentItem();
-    if (!item)
+    if (m_selectedEventId < 0 || !m_selectedOccurrenceDate.isValid())
         return;
-
-    const int eventId = item->data(Qt::UserRole).toInt();
-    // Та же дата, что и у onStartTaskClicked() - event.date из eventById()
-    // был бы датой ЯКОРЯ серии для повторяющегося события, а не датой
-    // конкретного вхождения, выбранного в списке.
-    const QDate occurrenceDate = m_calendarView->selectedDate();
 
     Event event;
-    if (!m_eventManager.eventById(eventId, event))
+    if (!m_eventManager.eventById(m_selectedEventId, event))
         return;
 
-    startPomodoroForOccurrence(event, occurrenceDate);
+    startPomodoroForOccurrence(event, m_selectedOccurrenceDate);
 }
 
 void MainWindow::onStartCurrentTaskClicked()
@@ -498,27 +556,19 @@ void MainWindow::onPomodoroCompletedForEvent(int eventId, const QDate &occurrenc
 
 void MainWindow::onStartTaskClicked()
 {
-    QListWidgetItem *item = m_eventsList->currentItem();
-    if (!item)
+    if (m_selectedEventId < 0 || !m_selectedOccurrenceDate.isValid())
         return;
 
-    const int eventId = item->data(Qt::UserRole).toInt();
-    const QDate occurrenceDate = m_calendarView->selectedDate(); // см. onEventSelectionChanged()
-
-    m_eventManager.startOccurrence(eventId, occurrenceDate, QDateTime::currentDateTime());
+    m_eventManager.startOccurrence(m_selectedEventId, m_selectedOccurrenceDate, QDateTime::currentDateTime());
     refreshEventsList();
 }
 
 void MainWindow::onCompleteTaskClicked()
 {
-    QListWidgetItem *item = m_eventsList->currentItem();
-    if (!item)
+    if (m_selectedEventId < 0 || !m_selectedOccurrenceDate.isValid())
         return;
 
-    const int eventId = item->data(Qt::UserRole).toInt();
-    const QDate occurrenceDate = m_calendarView->selectedDate();
-
-    m_eventManager.completeOccurrence(eventId, occurrenceDate, QDateTime::currentDateTime());
+    m_eventManager.completeOccurrence(m_selectedEventId, m_selectedOccurrenceDate, QDateTime::currentDateTime());
     refreshEventsList();
 }
 
@@ -625,11 +675,10 @@ void MainWindow::onManageCategoriesClicked()
 
 void MainWindow::onDeleteEventClicked()
 {
-    QListWidgetItem *item = m_eventsList->currentItem();
-    if (!item)
+    if (m_selectedEventId < 0)
         return;
 
-    const int eventId = item->data(Qt::UserRole).toInt();
+    const int eventId = m_selectedEventId;
 
     // Повторяющееся событие в БД - одна строка-шаблон (см. Этап 6),
     // поэтому удаление затрагивает всю серию, а не только показанное

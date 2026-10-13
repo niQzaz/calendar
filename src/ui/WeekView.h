@@ -52,6 +52,10 @@ signals:
     // просто ретранслируется из TimeGridView, см. его комментарий к сигналу.
     void eventRescheduled(int eventId, const QDate &newDate, const QTime &newStartTime, const QTime &newEndTime);
 
+    // Выбор события кликом (Stage B) - просто ретранслируется из
+    // TimeGridView, см. его комментарий к сигналу.
+    void eventSelected(int eventId, const QDate &occurrenceDate);
+
     // Видимый диапазон дат сменился (навигация по неделям) -
     // MainWindow должен подгрузить события для нового диапазона.
     void visibleRangeChanged(const QDate &start, const QDate &end);
