@@ -64,6 +64,10 @@ public:
     void setSelectedDate(const QDate &date);
     void goToToday();
 
+    // Stage B.1 - снимает подсветку выбранного события в Week и Day
+    // (программно, сигналов не шлёт).
+    void clearGridSelection();
+
     // NOW screen (продолжение MVP3) - прокидывается в NowView независимо
     // от того, какой режим сейчас активен (см. .cpp), чтобы данные уже
     // были свежими к моменту, когда пользователь переключится на Now.
@@ -89,6 +93,10 @@ signals:
     // или DayView (в Month выбор идёт отдельным путём, через m_eventsList
     // напрямую в MainWindow, не через этот сигнал).
     void eventSelected(int eventId, const QDate &occurrenceDate);
+
+    // Stage B.1 - пользователь снял выделение кликом по пустому месту
+    // сетки Week/Day.
+    void eventSelectionCleared();
 
 private slots:
     void onPreviousClicked();

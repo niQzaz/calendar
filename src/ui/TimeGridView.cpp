@@ -47,12 +47,18 @@ void TimeGridView::setTheme(const Theme &theme)
     update();
 }
 
-void TimeGridView::setSelectedEventId(int eventId)
+void TimeGridView::setSelectedOccurrence(int eventId, const QDate &occurrenceDate)
 {
-    if (m_selectedEventId == eventId)
+    if (m_selectedEventId == eventId && m_selectedOccurrenceDate == occurrenceDate)
         return;
     m_selectedEventId = eventId;
+    m_selectedOccurrenceDate = occurrenceDate;
     update();
+}
+
+void TimeGridView::clearSelection()
+{
+    setSelectedOccurrence(-1, QDate());
 }
 
 int TimeGridView::timeToY(const QTime &time) const
@@ -265,7 +271,7 @@ void TimeGridView::paintEvents(QPainter &painter, const QRect &gridRect)
             painter.setBrush(accentColor);
             painter.drawRect(QRect(eventRect.left(), eventRect.top(), 3, eventRect.height()));
 
-            if (slot.event.id == m_selectedEventId) {
+            if (slot.event.id == m_selectedEventId && slot.event.date == m_selectedOccurrenceDate) {
                 QPen selectedPen(m_theme.accent);
                 selectedPen.setWidth(2);
                 painter.setPen(selectedPen);
@@ -385,7 +391,7 @@ void TimeGridView::mousePressEvent(QMouseEvent *event)
 
     const HitEvent *hit = hitTestFull(event->pos());
     if (hit) {
-        setSelectedEventId(hit->event.id);
+        setSelectedOccurrence(hit->event.id, hit->event.date);
         emit eventSelected(hit->event.id, hit->event.date);
 
         // Перетаскивать/растягивать можно только НЕ повторяющиеся события.
@@ -416,7 +422,13 @@ void TimeGridView::mousePressEvent(QMouseEvent *event)
     if (columnIndex < 0)
         return; // клик мимо сетки (например, по шапке или по gutter'у со временем)
 
-    setSelectedEventId(-1); // клик по пустому месту снимает выделение с события
+    // Клик по пустому месту снимает выделение с события. Сообщаем об этом
+    // наверх (Stage B.1) ДО createEventRequested - тот открывает модальный
+    // диалог, и если его отменят, панель действий уже должна быть сброшена.
+    const bool hadSelection = m_selectedEventId >= 0;
+    setSelectedOccurrence(-1, QDate());
+    if (hadSelection)
+        emit eventSelectionCleared();
 
     const QTime snapped = snapToGrid(yToTime(event->pos().y()));
     emit createEventRequested(m_columnDates[columnIndex], snapped);

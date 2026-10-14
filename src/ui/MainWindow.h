@@ -59,6 +59,11 @@ private slots:
     // occurrence независимо от режима - см. m_selectedEventId ниже.
     void onEventSelected(int eventId, const QDate &occurrenceDate);
 
+    // Stage B.1 - клик по пустому месту сетки Week/Day снял выделение события
+    // (CalendarView::eventSelectionCleared) - сбрасываем общий контекст выбора,
+    // чтобы кнопки панели не действовали над уже не подсвеченным occurrence.
+    void onEventSelectionCleared();
+
     // Stage B - точка входа подготовлена (кнопка, enabled/disabled по
     // статусу), но сам выбор новой даты/времени - отдельный следующий этап.
     void onRescheduleClicked();
@@ -87,6 +92,15 @@ private:
     // метод, который дополнительно вызывает и onEventSelected() (Week/Day).
     void updateTaskActionButtons();
 
+    // Stage B.1 - true, если текущий выбор (m_selectedEventId +
+    // m_selectedOccurrenceDate) всё ещё указывает на реально существующее
+    // вхождение: событие есть в БД и присутствует в eventsForDate() этой даты
+    // (учитывает и удаление, и перенос/правку даты, и исключения повторений).
+    // Используется в refreshEventsList() для Week/Day, где выбор не должен
+    // сбрасываться после каждого действия, но и не должен пережить исчезновение
+    // самого вхождения.
+    bool selectionStillValid() const;
+
     // Единственное место, где Pomodoro и Execution встречаются - ни
     // PomodoroWidget, ни PomodoroTimer про EventManager не знают (и не
     // должны). Если occurrence ещё не Running - стартует Execution
@@ -109,6 +123,7 @@ private:
     QWidget *m_rightPanel = nullptr; // с Stage B видна в Month/Week/Day, скрыта только в Now
     QListWidget *m_eventsList = nullptr;
     QLabel *m_selectedDateLabel = nullptr;
+    QLabel *m_hintLabel = nullptr; // Stage B.1 - прячется вместе со списком вне Month
     QPushButton *m_addEventButton = nullptr;
     QPushButton *m_deleteEventButton = nullptr;
     QPushButton *m_startPomodoroButton = nullptr;

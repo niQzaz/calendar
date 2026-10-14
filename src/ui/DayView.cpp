@@ -26,6 +26,7 @@ DayView::DayView(QWidget *parent)
     connect(m_grid, &TimeGridView::editEventRequested, this, &DayView::editEventRequested);
     connect(m_grid, &TimeGridView::eventRescheduled, this, &DayView::eventRescheduled);
     connect(m_grid, &TimeGridView::eventSelected, this, &DayView::eventSelected);
+    connect(m_grid, &TimeGridView::eventSelectionCleared, this, &DayView::eventSelectionCleared);
 
     rebuildColumnDate();
 
@@ -72,4 +73,9 @@ void DayView::setEventsForVisibleRange(const QMap<QDate, QVector<Event>> &events
 void DayView::setTheme(const Theme &theme)
 {
     m_grid->setTheme(theme);
+}
+
+void DayView::clearSelection()
+{
+    m_grid->clearSelection();
 }

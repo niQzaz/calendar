@@ -49,8 +49,17 @@ public:
 
     void setTheme(const Theme &theme);
 
+    // Stage B.1 - выбор хранится как пара (id, дата вхождения), а не только id:
+    // у повторяющегося события все вхождения имеют один id, и подсветка по
+    // одному id выделяла бы их все сразу, хотя действия панели относятся
+    // только к одному. Не эмитит сигналов - это программное выделение.
     int selectedEventId() const { return m_selectedEventId; }
-    void setSelectedEventId(int eventId);
+    QDate selectedOccurrenceDate() const { return m_selectedOccurrenceDate; }
+    void setSelectedOccurrence(int eventId, const QDate &occurrenceDate);
+
+    // Снять подсветку программно (смена режима, навигация, удалённое событие).
+    // В отличие от клика по пустому месту НЕ эмитит eventSelectionCleared().
+    void clearSelection();
 
     // Y-координата, соответствующая заданному времени - используется
     // WeekView/DayView, чтобы прокрутить сетку к разумному времени
@@ -64,6 +73,12 @@ signals:
     // нужна наверх (Stage B), чтобы MainWindow мог включить/выключить
     // панель действий для именно этого occurrence, а не для события вообще.
     void eventSelected(int eventId, const QDate &occurrenceDate);
+
+    // Stage B.1 - пользователь кликнул по пустому месту сетки и тем самым
+    // снял выделение события (эмитится только если выделение действительно
+    // было). Нужен наверху, чтобы панель действий не продолжала работать
+    // с уже не подсвеченным событием.
+    void eventSelectionCleared();
 
     // Одиночный клик по пустому месту сетки - запрос создать событие
     // на эту дату и время (уже округлённое до ближайших 15 минут).
@@ -139,6 +154,7 @@ private:
     QVector<QVector<Event>> m_eventsByColumn; // тот же порядок, что m_columnDates
     int m_hourHeight = 56;
     int m_selectedEventId = -1;
+    QDate m_selectedOccurrenceDate; // Stage B.1 - вместе с m_selectedEventId определяет конкретное вхождение
     Theme m_theme;
 
     // Прямоугольники всех сейчас отрисованных событий - для hit-testing

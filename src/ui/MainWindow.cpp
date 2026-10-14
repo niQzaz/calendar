@@ -88,8 +88,8 @@ MainWindow::MainWindow(QWidget *parent)
     m_eventsList = new QListWidget(m_rightPanel);
     m_eventsList->setObjectName("eventsList");
 
-    auto *hintLabel = new QLabel("Double-click an event to edit it", m_rightPanel);
-    hintLabel->setObjectName("hintLabel");
+    m_hintLabel = new QLabel("Double-click an event to edit it", m_rightPanel);
+    m_hintLabel->setObjectName("hintLabel");
 
     m_addEventButton = new QPushButton("+ Add event", m_rightPanel);
     m_addEventButton->setObjectName("panelButton");
@@ -118,7 +118,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     rightLayout->addWidget(m_selectedDateLabel);
     rightLayout->addWidget(m_eventsList, 1);
-    rightLayout->addWidget(hintLabel);
+    rightLayout->addWidget(m_hintLabel);
     rightLayout->addWidget(m_addEventButton);
     rightLayout->addWidget(m_deleteEventButton);
     rightLayout->addWidget(m_startPomodoroButton);
@@ -126,6 +126,10 @@ MainWindow::MainWindow(QWidget *parent)
     rightLayout->addWidget(m_completeTaskButton);
     rightLayout->addWidget(m_rescheduleButton);
     rightLayout->addWidget(m_taskStatusLabel);
+    // Stage B.1 - в Week/Day список скрыт (у него stretch 1), и без этого
+    // распорки кнопки растянулись бы по всей высоте панели. Распорка с
+    // stretch 0 места не забирает, пока видим список (Month).
+    rightLayout->addStretch();
 
     auto *splitter = new QSplitter(this);
     splitter->addWidget(m_calendarView);
@@ -163,6 +167,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_calendarView, &CalendarView::eventRescheduled, this, &MainWindow::onEventRescheduled);
     connect(m_calendarView, &CalendarView::viewModeChanged, this, &MainWindow::onCalendarViewModeChanged);
     connect(m_calendarView, &CalendarView::eventSelected, this, &MainWindow::onEventSelected);
+    connect(m_calendarView, &CalendarView::eventSelectionCleared, this, &MainWindow::onEventSelectionCleared);
 
     // Инициализируем правую панель для дня, который CalendarView
     // выбрал по умолчанию (сегодня), и сразу подсвечиваем в сетке дни,
@@ -234,13 +239,27 @@ void MainWindow::refreshEventsList()
             item->setToolTip(event.description);
     }
 
-    // Как и раньше - список перестроен заново (новые QListWidgetItem),
-    // прежнее выделение больше не на что указывать, поэтому общий контекст
-    // выбора сбрасывается. Это то же поведение, что было и до Stage B,
-    // просто теперь выражено через общий механизм, а не ручным сбросом
-    // пяти виджетов по отдельности.
-    m_selectedEventId = -1;
-    m_selectedOccurrenceDate = QDate();
+    // Month (и Now, где панель скрыта): как и раньше - список перестроен
+    // заново (новые QListWidgetItem), прежнее выделение больше не на что
+    // указывать, поэтому общий контекст выбора сбрасывается.
+    //
+    // Week/Day (Stage B.1): источник выбора - блок в сетке, который этим
+    // обновлением не перестраивается как "выбранный" (подсветка в TimeGridView
+    // держится по (id, дата)). Поэтому выбор СОХРАНЯЕМ - иначе после Start
+    // кнопки гасли бы и статус пропадал, хотя блок остаётся подсвеченным.
+    // Сбрасываем только если выбранное вхождение исчезло (удалено, перенесено,
+    // сменило дату) - и тогда же снимаем подсветку в сетке.
+    const CalendarViewMode mode = m_calendarView->viewMode();
+    const bool gridMode = (mode == CalendarViewMode::Week || mode == CalendarViewMode::Day);
+
+    if (gridMode && selectionStillValid()) {
+        // выбор остаётся - ниже только пересчёт кнопок/статуса
+    } else {
+        m_selectedEventId = -1;
+        m_selectedOccurrenceDate = QDate();
+        if (gridMode)
+            m_calendarView->clearGridSelection();
+    }
     updateTaskActionButtons();
 
     refreshNowView();
@@ -271,19 +290,42 @@ void MainWindow::onVisibleRangeChanged(const QDate &start, const QDate &end)
 {
     m_visibleRangeStart = start;
     m_visibleRangeEnd = end;
+
+    // Stage B.1 - в Week/Day выбор живёт в сетке; если пользователь
+    // перелистнул неделю/день, и выбранное вхождение ушло из видимого
+    // диапазона, кнопки не должны продолжать действовать над ним.
+    const CalendarViewMode mode = m_calendarView->viewMode();
+    if ((mode == CalendarViewMode::Week || mode == CalendarViewMode::Day)
+        && m_selectedOccurrenceDate.isValid()
+        && (m_selectedOccurrenceDate < start || m_selectedOccurrenceDate > end)) {
+        m_selectedEventId = -1;
+        m_selectedOccurrenceDate = QDate();
+        m_calendarView->clearGridSelection();
+        updateTaskActionButtons();
+    }
+
     refreshCalendarMarkers();
 }
 
 void MainWindow::onCalendarViewModeChanged(CalendarViewMode mode)
 {
     // Stage B: панель действий теперь нужна и в Week/Day (не только
-    // в Month, как было раньше) - список m_eventsList внутри неё по-прежнему
-    // смысл имеет только в Month (дублировал бы сетку в Week/Day), но сами
-    // кнопки действий (Start/Complete/Reschedule/Delete/Pomodoro) и статус-
-    // лейбл теперь нужны во всех трёх. Скрываем панель только в Now - у неё
-    // свой отдельный экран, эта панель туда не переносится. Pomodoro-панель
-    // (отдельный виджет сплиттера) не трогаем - как и раньше.
+    // в Month, как было раньше) - кнопки действий (Start/Complete/Reschedule/
+    // Delete/Pomodoro) и статус-лейбл нужны во всех трёх. Скрываем панель
+    // только в Now - у неё свой отдельный экран. Pomodoro-панель (отдельный
+    // виджет сплиттера) не трогаем - как и раньше.
     m_rightPanel->setVisible(mode != CalendarViewMode::Now);
+
+    // Stage B.1 - список событий, заголовок с датой, подсказка и "+ Add event"
+    // привязаны к выбранной дате MonthView, поэтому имеют смысл только в Month.
+    // В Week/Day события видны прямо в сетке (создание - кликом по сетке или
+    // через File > New event), а список показывал бы события другого дня и
+    // перезаписывал бы выбор, сделанный в сетке.
+    const bool isMonth = (mode == CalendarViewMode::Month);
+    m_selectedDateLabel->setVisible(isMonth);
+    m_eventsList->setVisible(isMonth);
+    m_hintLabel->setVisible(isMonth);
+    m_addEventButton->setVisible(isMonth);
 
     // Переключение режима обесценивает предыдущее выделение - иначе
     // кнопки продолжали бы действовать над occurrence из уже покинутого
@@ -291,6 +333,7 @@ void MainWindow::onCalendarViewModeChanged(CalendarViewMode mode)
     m_selectedEventId = -1;
     m_selectedOccurrenceDate = QDate();
     m_eventsList->clearSelection();
+    m_calendarView->clearGridSelection(); // Stage B.1 - подсветка в сетке не должна пережить сброс
     updateTaskActionButtons();
 }
 
@@ -325,6 +368,13 @@ void MainWindow::openNewEventDialog(const QDate &defaultDate, const QTime &defau
 
 void MainWindow::onEventSelectionChanged()
 {
+    // Stage B.1 - список m_eventsList осмыслен только в Month. В Week/Day он
+    // скрыт, но refreshEventsList() всё равно перестраивает его (clear()
+    // эмитит itemSelectionChanged) - без этой проверки такой сигнал затирал
+    // бы выбор, сделанный в сетке.
+    if (m_calendarView->viewMode() != CalendarViewMode::Month)
+        return;
+
     // Month: источник выбора - клик в m_eventsList. Список всегда наполнен
     // для одной конкретной даты (см. refreshEventsList()), и в Month-режиме
     // m_calendarView->selectedDate() как раз и есть эта дата - в отличие
@@ -353,6 +403,28 @@ void MainWindow::onEventSelected(int eventId, const QDate &occurrenceDate)
     m_selectedOccurrenceDate = occurrenceDate;
 
     updateTaskActionButtons();
+}
+
+void MainWindow::onEventSelectionCleared()
+{
+    // Подсветка в сетке уже снята самим TimeGridView - здесь только общий
+    // контекст выбора и состояние кнопок.
+    m_selectedEventId = -1;
+    m_selectedOccurrenceDate = QDate();
+    updateTaskActionButtons();
+}
+
+bool MainWindow::selectionStillValid() const
+{
+    if (m_selectedEventId < 0 || !m_selectedOccurrenceDate.isValid())
+        return false;
+
+    const QVector<Event> events = m_eventManager.eventsForDate(m_selectedOccurrenceDate);
+    for (const Event &event : events) {
+        if (event.id == m_selectedEventId)
+            return true;
+    }
+    return false;
 }
 
 void MainWindow::updateTaskActionButtons()

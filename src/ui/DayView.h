@@ -34,6 +34,9 @@ public:
     void setEventsForVisibleRange(const QMap<QDate, QVector<Event>> &eventsByDate);
     void setTheme(const Theme &theme);
 
+    // Stage B.1 - программно снять подсветку выбранного события в сетке.
+    void clearSelection();
+
     QDate currentDate() const { return m_date; }
 
 signals:
@@ -47,6 +50,9 @@ signals:
     // Выбор события кликом (Stage B) - просто ретранслируется из
     // TimeGridView, см. его комментарий к сигналу.
     void eventSelected(int eventId, const QDate &occurrenceDate);
+
+    // Stage B.1 - клик по пустому месту сетки снял выделение события.
+    void eventSelectionCleared();
 
     // Для Day View start == end == currentDate() - сигнал всё равно нужен,
     // чтобы MainWindow знал, когда подгружать события заново (навигация
