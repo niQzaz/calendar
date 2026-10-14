@@ -419,7 +419,11 @@ QSet<QDate> EventManager::datesWithEvents(const QDate &rangeStart, const QDate &
     const QVector<Event> templates = allRecurringTemplates();
     for (QDate day = rangeStart; day <= rangeEnd; day = day.addDays(1)) {
         for (const Event &templateEvent : templates) {
-            if (eventOccursOnDate(templateEvent, day)) {
+            // Этап C - вхождение, перенесённое на другую дату, не должно
+            // продолжать отмечать старый день (то же условие, что в
+            // eventsForDate()/eventsInRange()). Если у ЭТОГО шаблона на этот
+            // день есть исключение - просто переходим к следующему шаблону.
+            if (eventOccursOnDate(templateEvent, day) && !hasRecurrenceException(templateEvent.id, day)) {
                 dates.insert(day);
                 break; // на этот день уже есть хотя бы одно событие, дальше не проверяем
             }

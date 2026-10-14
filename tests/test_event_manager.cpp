@@ -12,6 +12,7 @@
 // на полноценной сборке отдельно.
 
 #include <QtTest>
+#include <QTemporaryDir>
 
 #include "services/EventManager.h"
 #include "models/Category.h"
@@ -104,6 +105,10 @@ private slots:
     void rescheduleOccurrence_exceptionForEventADoesNotAffectEventBSameDate();
     void rescheduleOccurrence_doesNotCreateExecutionForPlannedOrMissed();
     void rescheduleOccurrence_newEventCanSubsequentlyStartAndComplete();
+
+    // --- Этап C ---
+    void datesWithEvents_excludesRescheduledRecurringOccurrence();
+    void rescheduleOccurrence_persistsAcrossManagerRecreation();
 
 private:
     EventManager *m_manager = nullptr;
@@ -1386,6 +1391,87 @@ void TestEventManager::rescheduleOccurrence_newEventCanSubsequentlyStartAndCompl
     QCOMPARE(completed.status, ExecutionStatus::Completed);
     QCOMPARE(completed.actualStart, startedAt);
     QCOMPARE(completed.actualEnd, completedAt);
+}
+
+// --- Этап C ---
+
+void TestEventManager::datesWithEvents_excludesRescheduledRecurringOccurrence()
+{
+    Event weekly;
+    weekly.title = QStringLiteral("Weekly");
+    weekly.date = QDate(2026, 9, 21); // понедельник - якорь серии
+    weekly.startTime = QTime(17, 30);
+    weekly.endTime = QTime(19, 0);
+    weekly.recurrenceType = RecurrenceType::Weekly;
+    const int templateId = m_manager->addEvent(weekly);
+    QVERIFY(templateId > 0);
+
+    const QDate rangeStart(2026, 9, 21);
+    const QDate rangeEnd(2026, 10, 4);
+
+    // До переноса оба понедельника отмечены.
+    QSet<QDate> before = m_manager->datesWithEvents(rangeStart, rangeEnd);
+    QVERIFY(before.contains(QDate(2026, 9, 21)));
+    QVERIFY(before.contains(QDate(2026, 9, 28)));
+
+    // Переносим только вхождение 21 сентября на вторник 22-го.
+    const QDateTime now(QDate(2026, 9, 21), QTime(10, 0)); // задолго до окна - Planned
+    QVERIFY(m_manager->rescheduleOccurrence(
+        templateId, QDate(2026, 9, 21), QDate(2026, 9, 22), QTime(20, 0), QTime(21, 0), nullptr, now));
+
+    const QSet<QDate> after = m_manager->datesWithEvents(rangeStart, rangeEnd);
+    QVERIFY(!after.contains(QDate(2026, 9, 21))); // старый день больше не отмечен
+    QVERIFY(after.contains(QDate(2026, 9, 22)));  // новый - отмечен
+    QVERIFY(after.contains(QDate(2026, 9, 28)));  // остальная серия на месте
+}
+
+void TestEventManager::rescheduleOccurrence_persistsAcrossManagerRecreation()
+{
+    // Настоящий файл вместо :memory: - иначе "переживает перезапуск"
+    // проверить нельзя. Первый менеджер уничтожается (деструктор закрывает
+    // соединение) до создания второго - как при перезапуске приложения.
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString dbPath = dir.filePath(QStringLiteral("calendar.db"));
+
+    int templateId = -1;
+    int newEventId = -1;
+    {
+        EventManager first(dbPath, QStringLiteral("test_persist_first"));
+
+        Event weekly;
+        weekly.title = QStringLiteral("Math");
+        weekly.date = QDate(2026, 9, 21);
+        weekly.startTime = QTime(17, 30);
+        weekly.endTime = QTime(19, 0);
+        weekly.recurrenceType = RecurrenceType::Weekly;
+        templateId = first.addEvent(weekly);
+        QVERIFY(templateId > 0);
+
+        const QDateTime now(QDate(2026, 9, 21), QTime(10, 0));
+        QVERIFY(first.rescheduleOccurrence(
+            templateId, QDate(2026, 9, 21), QDate(2026, 9, 22), QTime(20, 0), QTime(21, 0), &newEventId, now));
+        QVERIFY(newEventId > 0);
+    }
+
+    {
+        EventManager second(dbPath, QStringLiteral("test_persist_second"));
+
+        // Старое вхождение по-прежнему исключено из серии...
+        QVERIFY(second.eventsForDate(QDate(2026, 9, 21)).isEmpty());
+
+        // ...новое разовое событие на месте...
+        const QVector<Event> moved = second.eventsForDate(QDate(2026, 9, 22));
+        QCOMPARE(moved.size(), 1);
+        QCOMPARE(moved[0].id, newEventId);
+        QCOMPARE(moved[0].startTime, QTime(20, 0));
+        QCOMPARE(moved[0].endTime, QTime(21, 0));
+
+        // ...а следующее вхождение серии не тронуто.
+        const QVector<Event> nextWeek = second.eventsForDate(QDate(2026, 9, 28));
+        QCOMPARE(nextWeek.size(), 1);
+        QCOMPARE(nextWeek[0].id, templateId);
+    }
 }
 
 QTEST_MAIN(TestEventManager)

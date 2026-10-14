@@ -27,6 +27,8 @@ add_executable(QtCalendarApp
     src/services/PomodoroTimer.cpp
     src/services/CsvImporter.h
     src/services/CsvImporter.cpp
+    src/services/ReschedulePresets.h
+    src/services/ReschedulePresets.cpp
     src/services/NotificationService.h
     src/services/NotificationService.cpp
     src/services/EventReminder.h
@@ -57,6 +59,8 @@ add_executable(QtCalendarApp
     src/ui/TimeGridView.cpp
     src/ui/EventDialog.h
     src/ui/EventDialog.cpp
+    src/ui/RescheduleDialog.h
+    src/ui/RescheduleDialog.cpp
     src/ui/PomodoroWidget.h
     src/ui/PomodoroWidget.cpp
     src/ui/SettingsDialog.h

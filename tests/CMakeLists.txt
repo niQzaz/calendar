@@ -40,3 +40,12 @@ add_executable(test_event_manager
 target_include_directories(test_event_manager PRIVATE ${CALENDAR_SRC_DIR})
 target_link_libraries(test_event_manager PRIVATE Qt6::Test Qt6::Sql Qt6::Core)
 add_test(NAME test_event_manager COMMAND test_event_manager)
+
+# --- test_reschedule_presets: services/ReschedulePresets.h, без БД и без UI (Этап C) ---
+add_executable(test_reschedule_presets
+    test_reschedule_presets.cpp
+    ${CALENDAR_SRC_DIR}/services/ReschedulePresets.cpp
+)
+target_include_directories(test_reschedule_presets PRIVATE ${CALENDAR_SRC_DIR})
+target_link_libraries(test_reschedule_presets PRIVATE Qt6::Test Qt6::Core)
+add_test(NAME test_reschedule_presets COMMAND test_reschedule_presets)

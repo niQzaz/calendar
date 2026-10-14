@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 #include "CalendarView.h"
 #include "EventDialog.h"
+#include "RescheduleDialog.h"
 #include "PomodoroWidget.h"
 #include "SettingsDialog.h"
 #include "CategoryManagerDialog.h"
@@ -108,8 +109,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_completeTaskButton = new QPushButton("Complete", m_rightPanel);
     m_completeTaskButton->setObjectName("panelButton");
     m_completeTaskButton->setEnabled(false);
-    // Stage B - точка входа подготовлена, сам выбор новой даты/времени -
-    // следующий этап (см. onRescheduleClicked()).
+    // Stage C - открывает RescheduleDialog (см. onRescheduleClicked()).
     m_rescheduleButton = new QPushButton("Reschedule", m_rightPanel);
     m_rescheduleButton->setObjectName("panelButton");
     m_rescheduleButton->setEnabled(false);
@@ -496,15 +496,58 @@ void MainWindow::updateTaskActionButtons()
 
 void MainWindow::onRescheduleClicked()
 {
-    // Stage B умышленно не включает выбор новой даты/времени - кнопка уже
-    // корректно доступна только для Planned/Missed (см. updateTaskActionButtons()),
-    // но реального переноса не делает, чтобы не вызывать rescheduleOccurrence()
-    // с придуманными значениями. Точка входа подготовлена для следующего этапа.
-    QMessageBox::information(
-        this, "Reschedule",
-        "Choosing a new date/time isn't built yet - this button will be "
-        "connected to it in the next stage."
-    );
+    // Stage C. Все правила (какие статусы можно переносить, как переносить
+    // повторяющееся вхождение) живут в EventManager::rescheduleOccurrence() -
+    // здесь только выбор нового слота и обновление интерфейса.
+    if (m_selectedEventId < 0 || !m_selectedOccurrenceDate.isValid())
+        return;
+
+    Event event;
+    if (!m_eventManager.eventById(m_selectedEventId, event)) {
+        // событие успели удалить - просто приводим панель в порядок
+        refreshEventsList();
+        return;
+    }
+
+    // Один и тот же now - и для проверки статуса, и для диалога, и для
+    // backend: иначе граница Planned/Missed могла бы "поплыть" между шагами.
+    const QDateTime now = QDateTime::currentDateTime();
+
+    // Состояние кнопки могло устареть (панель обновляется не по таймеру):
+    // повторно проверяем то же правило, что и в updateTaskActionButtons().
+    const ExecutionStatus status = m_eventManager.effectiveStatus(
+        event.id, m_selectedOccurrenceDate, event.startTime, event.endTime, now);
+    if (status != ExecutionStatus::Planned && status != ExecutionStatus::Missed) {
+        QMessageBox::information(this, "Reschedule",
+                                 "This task can no longer be rescheduled - its status has changed.");
+        updateTaskActionButtons();
+        return;
+    }
+
+    // Для повторяющегося события startTime/endTime шаблона - это время и у
+    // выбранного вхождения (у всех вхождений серии оно одинаково).
+    RescheduleDialog dialog(event.title, m_selectedOccurrenceDate, event.startTime, event.endTime, now, this);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+
+    if (!m_eventManager.rescheduleOccurrence(
+            m_selectedEventId, m_selectedOccurrenceDate,
+            dialog.newDate(), dialog.newStart(), dialog.newEnd(), nullptr, now)) {
+        // backend возвращает только bool, без причины - формулировка общая.
+        QMessageBox::warning(this, "Reschedule",
+                             "Couldn't reschedule this task. It may have been started, completed, "
+                             "moved or deleted in the meantime.");
+        refreshEventsList();
+        refreshCalendarMarkers();
+        return;
+    }
+
+    // Старое вхождение исчезло с прежней даты, новое появилось на новой -
+    // перерисовываем список/маркеры/сетку/NOW тем же путём, что и drag.
+    // Выбор при этом сбросится сам: Month сбрасывает его всегда, а Week/Day -
+    // потому что selectionStillValid() больше не находит вхождение на старой дате.
+    refreshEventsList();
+    refreshCalendarMarkers();
 }
 
 void MainWindow::onEventDoubleClicked(QListWidgetItem *item)
@@ -552,6 +595,24 @@ void MainWindow::onEventRescheduled(int eventId, const QDate &newDate, const QTi
     Event event;
     if (!m_eventManager.eventById(eventId, event))
         return; // событие успели удалить, пока тащили - просто ничего не делаем
+
+    // Stage C - обычное обновление записи не знает про статусы выполнения, и
+    // без этой проверки выполняющуюся/завершённую задачу можно было бы
+    // утащить на другое время в обход запрета rescheduleOccurrence().
+    // Блокируем только изменение даты/начала, т.е. именно перенос; растяжение
+    // конца (дату и начало не меняет) остаётся разрешённым. Сетка вернёт блок
+    // на место сама: превью перетаскивания рисуется из её данных, а не из БД.
+    const bool startMoved = (newDate != event.date || newStartTime != event.startTime);
+    if (startMoved) {
+        const ExecutionStatus status = m_eventManager.effectiveStatus(
+            event.id, event.date, event.startTime, event.endTime, QDateTime::currentDateTime());
+        if (status == ExecutionStatus::Running || status == ExecutionStatus::Completed) {
+            QMessageBox::information(
+                this, "Can't move task",
+                "A running or completed task can't be moved. You can still adjust its end time.");
+            return;
+        }
+    }
 
     event.date = newDate;
     event.startTime = newStartTime;
