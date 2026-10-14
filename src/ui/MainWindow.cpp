@@ -37,6 +37,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_themeManager = new ThemeManager(&m_settings, this);
 
     auto *fileMenu = menuBar()->addMenu("File");
+    menuBar()->setNativeMenuBar(false);
 
     m_calendarView = new CalendarView(this);
     m_notificationService = new NotificationService(&m_settings, this);
