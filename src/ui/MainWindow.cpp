@@ -37,7 +37,6 @@ MainWindow::MainWindow(QWidget *parent)
     m_themeManager = new ThemeManager(&m_settings, this);
 
     auto *fileMenu = menuBar()->addMenu("File");
-    menuBar()->setNativeMenuBar(false);
 
     m_calendarView = new CalendarView(this);
     m_notificationService = new NotificationService(&m_settings, this);
@@ -432,9 +431,9 @@ void MainWindow::updateTaskActionButtons()
 {
     const bool hasSelection = m_selectedEventId >= 0 && m_selectedOccurrenceDate.isValid();
     m_deleteEventButton->setEnabled(hasSelection);
-    m_startPomodoroButton->setEnabled(hasSelection);
 
     if (!hasSelection) {
+        m_startPomodoroButton->setEnabled(false);
         m_startTaskButton->setEnabled(false);
         m_completeTaskButton->setEnabled(false);
         m_rescheduleButton->setEnabled(false);
@@ -444,6 +443,7 @@ void MainWindow::updateTaskActionButtons()
 
     Event event;
     if (!m_eventManager.eventById(m_selectedEventId, event)) {
+        m_startPomodoroButton->setEnabled(false);
         m_startTaskButton->setEnabled(false);
         m_completeTaskButton->setEnabled(false);
         m_rescheduleButton->setEnabled(false);
@@ -454,6 +454,13 @@ void MainWindow::updateTaskActionButtons()
     const QDateTime now = QDateTime::currentDateTime();
     const ExecutionStatus status = m_eventManager.effectiveStatus(
         event.id, m_selectedOccurrenceDate, event.startTime, event.endTime, now);
+
+    // Stage D1: Pomodoro запускает задачу, поэтому доступен только там, где
+    // доступен и сам Start (Planned/Missed) либо задача уже идёт (Running).
+    // Для Completed он раньше был включён и возвращал завершённую задачу в
+    // Running. Защита есть и в EventManager - это лишь отражение в UI.
+    m_startPomodoroButton->setEnabled(
+        status == ExecutionStatus::Planned || status == ExecutionStatus::Running || status == ExecutionStatus::Missed);
 
     // Start доступен, пока ничего не завершено/не отменено/не перенесено -
     // включая Missed (реально сделать позже пропущенного окна - нормальный
@@ -567,7 +574,64 @@ void MainWindow::openEditEventDialog(int eventId)
     if (dialog.exec() != QDialog::Accepted)
         return;
 
-    m_eventManager.updateEvent(dialog.toEvent());
+    Event edited = dialog.toEvent();
+
+    // Stage D1: правка не должна рассогласовать расписание и историю
+    // выполнения. Если она это сделает, откатываем только "ломающие" поля к
+    // сохранённым значениям, остальное (название, категория и т.д.)
+    // сохраняем и сообщаем пользователю, что именно не применилось.
+    QVector<QDate> conflicts = m_eventManager.executionConflictsForEdit(edited);
+    if (!conflicts.isEmpty()) {
+        const bool oneTime = (existingEvent.recurrenceType == RecurrenceType::None);
+
+        // Серия: возвращаем дату (якорь) и правило повторения. Время
+        // начала/окончания серии меняется свободно.
+        // Одноразовое: возвращаем дату и весь временной блок (иначе
+        // сдвинутое начало с новым концом дало бы неожиданную длительность).
+        if (oneTime) {
+            // Блок времени возвращаем только если его реально сдвинули
+            // (дата/начало); правка одного лишь конца сама по себе не
+            // конфликтует и сохраняется.
+            if (edited.date != existingEvent.date || edited.startTime != existingEvent.startTime) {
+                edited.date = existingEvent.date;
+                edited.startTime = existingEvent.startTime;
+                edited.endTime = existingEvent.endTime;
+            }
+        } else {
+            edited.date = existingEvent.date;
+            edited.recurrenceType = existingEvent.recurrenceType;
+            edited.recurrenceInterval = existingEvent.recurrenceInterval;
+            edited.recurrenceEndDate = existingEvent.recurrenceEndDate;
+        }
+
+        // Одноразовое событие могло конфликтовать и из-за правила повторения
+        // (дата перестала быть вхождением) - тогда откатываем и его.
+        if (!m_eventManager.executionConflictsForEdit(edited).isEmpty()) {
+            edited.recurrenceType = existingEvent.recurrenceType;
+            edited.recurrenceInterval = existingEvent.recurrenceInterval;
+            edited.recurrenceEndDate = existingEvent.recurrenceEndDate;
+        }
+
+        QStringList shownDates;
+        for (int i = 0; i < conflicts.size() && i < 3; ++i)
+            shownDates << conflicts[i].toString("dd.MM.yyyy");
+        QString datesText = shownDates.join(", ");
+        if (conflicts.size() > 3)
+            datesText += ", ...";
+
+        const QString message = oneTime
+            ? QString("The date and start time of a running or completed task can't be changed. "
+                      "Your other changes were saved.")
+            : QString("The date and repeat schedule of this series can't be changed this way: it would "
+                      "detach occurrences that are already running or completed (%1). "
+                      "Your other changes were saved.").arg(datesText);
+        QMessageBox::information(this, "Some changes weren't applied", message);
+    }
+
+    if (!m_eventManager.updateEvent(edited)) {
+        // Страховка: защита в модели не пропустила правку (или ошибка БД).
+        QMessageBox::warning(this, "Edit event", "Couldn't save the changes to this event.");
+    }
     refreshEventsList();
     refreshCalendarMarkers();
 }
@@ -665,8 +729,27 @@ void MainWindow::startPomodoroForOccurrence(const Event &event, const QDate &occ
     // перезаписало бы actual_start на текущий момент, хотя задача по факту
     // уже началась раньше. Pomodoro же всё равно (пере)запускаем - это его
     // обычная, не меняющаяся семантика повторного Start.
-    if (status != ExecutionStatus::Running)
-        m_eventManager.startOccurrence(event.id, occurrenceDate, now);
+    // Stage D1: для уже завершённой/закрытой задачи Pomodoro не запускаем -
+    // иначе startOccurrence() вернул бы её в Running и стёр завершение.
+    if (status == ExecutionStatus::Completed
+        || status == ExecutionStatus::Postponed
+        || status == ExecutionStatus::Cancelled) {
+        QMessageBox::information(this, "Pomodoro",
+                                 "This task is already completed or closed, so a Pomodoro can't be started for it.");
+        return;
+    }
+
+    if (status != ExecutionStatus::Running) {
+        // Модель тоже защищена (D1): если состояние успело измениться, Start
+        // вернёт false - тогда таймер не запускаем, чтобы он не работал над
+        // задачей, которая не перешла в Running.
+        if (!m_eventManager.startOccurrence(event.id, occurrenceDate, now)) {
+            QMessageBox::warning(this, "Pomodoro",
+                                 "Couldn't start this task - its status has changed.");
+            refreshEventsList();
+            return;
+        }
+    }
 
     const QString taskLabel = QString("%1 (%2\xE2\x80\x93%3)")
         .arg(event.title, event.startTime.toString("HH:mm"), event.endTime.toString("HH:mm"));

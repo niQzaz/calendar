@@ -95,7 +95,10 @@ bool findCurrentTask(const QVector<EventWithStatus> &todaysEvents, const QTime &
     // их окно формально накрывает now - они уже "решены".
     for (const EventWithStatus &item : todaysEvents) {
         const bool isLive = item.status == ExecutionStatus::Planned || item.status == ExecutionStatus::Missed;
-        if (isLive && item.event.startTime <= now && now <= item.event.endTime) {
+        // Конец исключающий (Stage D2): в момент стыка двух задач (одна
+        // кончается в 10:00, другая начинается в 10:00) текущей должна быть
+        // уже следующая, а не продолжающая считаться предыдущая.
+        if (isLive && item.event.startTime <= now && now < item.event.endTime) {
             outCurrent = item;
             return true;
         }

@@ -354,6 +354,93 @@ private slots:
         QVERIFY(!findCurrentTask(events, QTime(9, 30), current));
     }
 
+    // --- Stage D2: граница окна [start, end) ---
+
+    void findCurrentTask_backToBackTasks_endIsExclusive()
+    {
+        // Две задачи вплотную: 9:00-10:00 и 10:00-11:00.
+        const QVector<EventWithStatus> events = {
+            makeItem("First", QTime(9, 0), QTime(10, 0), ExecutionStatus::Planned, 1),
+            makeItem("Second", QTime(10, 0), QTime(11, 0), ExecutionStatus::Planned, 2),
+        };
+
+        EventWithStatus current;
+
+        // Секунда до стыка - ещё первая.
+        QVERIFY(findCurrentTask(events, QTime(9, 59, 59), current));
+        QCOMPARE(current.event.id, 1);
+
+        // Ровно в момент стыка - уже вторая (раньше оставалась первая).
+        QVERIFY(findCurrentTask(events, QTime(10, 0, 0), current));
+        QCOMPARE(current.event.id, 2);
+
+        // После стыка - вторая.
+        QVERIFY(findCurrentTask(events, QTime(10, 0, 1), current));
+        QCOMPARE(current.event.id, 2);
+    }
+
+    void findCurrentTask_startIsInclusive()
+    {
+        const QVector<EventWithStatus> events = {
+            makeItem("Meeting", QTime(9, 0), QTime(10, 0), ExecutionStatus::Planned, 1),
+        };
+
+        EventWithStatus current;
+        QVERIFY(!findCurrentTask(events, QTime(8, 59, 59), current)); // до начала
+        QVERIFY(findCurrentTask(events, QTime(9, 0, 0), current));    // ровно начало - входит
+        QCOMPARE(current.event.id, 1);
+    }
+
+    void findCurrentTask_endIsExclusive()
+    {
+        const QVector<EventWithStatus> events = {
+            makeItem("Meeting", QTime(9, 0), QTime(10, 0), ExecutionStatus::Planned, 1),
+        };
+
+        EventWithStatus current;
+        QVERIFY(findCurrentTask(events, QTime(9, 59, 59), current));  // непосредственно до конца
+        QVERIFY(!findCurrentTask(events, QTime(10, 0, 0), current));  // ровно конец - уже нет
+        QVERIFY(!findCurrentTask(events, QTime(10, 0, 1), current));  // после конца
+    }
+
+    void findCurrentTask_overlappingTasks_firstInListWins()
+    {
+        // Известное ограничение (не менялось в Stage D2): при пересечении
+        // окон текущей остаётся первое подходящее событие в порядке списка,
+        // а не "последнее начатое" или "самое короткое".
+        const QVector<EventWithStatus> events = {
+            makeItem("Long", QTime(9, 0), QTime(11, 0), ExecutionStatus::Planned, 1),
+            makeItem("Inner", QTime(10, 0), QTime(12, 0), ExecutionStatus::Planned, 2),
+        };
+
+        EventWithStatus current;
+        QVERIFY(findCurrentTask(events, QTime(10, 30), current));
+        QCOMPARE(current.event.id, 1);
+
+        // Второе событие уже началось - "следующей" оно быть не может.
+        EventWithStatus next;
+        QVERIFY(!findNextTask(events, QTime(10, 30), &current, next));
+
+        // Порядок списка определяет результат - закрепляем это как есть.
+        const QVector<EventWithStatus> reversed = { events[1], events[0] };
+        QVERIFY(findCurrentTask(reversed, QTime(10, 30), current));
+        QCOMPARE(current.event.id, 2);
+    }
+
+    void findCurrentTask_runningStillWinsAtBoundary()
+    {
+        // Приоритет Running над окном не изменился: задача, начатая вручную,
+        // остаётся текущей, даже когда плановое окно соседней уже наступило.
+        const QVector<EventWithStatus> events = {
+            makeItem("Early", QTime(9, 0), QTime(10, 0), ExecutionStatus::Running, 1),
+            makeItem("Scheduled", QTime(10, 0), QTime(11, 0), ExecutionStatus::Planned, 2),
+        };
+
+        EventWithStatus current;
+        QVERIFY(findCurrentTask(events, QTime(10, 0, 0), current));
+        QCOMPARE(current.event.id, 1);
+    }
+
     // --- findNextTask() ---
 
     void findNextTask_picksEarliestUpcoming()

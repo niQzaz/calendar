@@ -13,6 +13,8 @@
 
 #include <QtTest>
 #include <QTemporaryDir>
+#include <QSqlDatabase>
+#include <QSqlQuery>
 
 #include "services/EventManager.h"
 #include "models/Category.h"
@@ -110,8 +112,47 @@ private slots:
     void datesWithEvents_excludesRescheduledRecurringOccurrence();
     void rescheduleOccurrence_persistsAcrossManagerRecreation();
 
+    // --- Этап D1: защита переходов ---
+    void startOccurrence_fromNoRecordAndMissed_succeeds();
+    void startOccurrence_fromRunning_rejectedAndKeepsActualStart();
+    void startOccurrence_fromCompleted_rejectedAndKeepsRecord();
+    void startOccurrence_fromPostponedAndCancelled_rejected();
+    void startOccurrence_rejectionAffectsOnlyThatOccurrenceOfSeries();
+    void completeOccurrence_fromNoRecordAndRunning_succeeds();
+    void completeOccurrence_fromCompleted_rejectedAndKeepsActualEnd();
+    void completeOccurrence_fromPostponedAndCancelled_rejected();
+
+    // --- Этап D1: защита редактирования ---
+    void updateEvent_oneTimeWithHistory_rejectsDateAndStartChange();
+    void updateEvent_oneTimeCompleted_allowsEndTitleAndDescriptionChange();
+    void updateEvent_oneTimePlanned_allowsAnyChange();
+    void updateEvent_seriesWithCompletedOccurrence_allowsTitleAndTimeChange();
+    void updateEvent_seriesWithCompletedOccurrence_anchorShift();
+    void updateEvent_seriesWithCompletedOccurrence_intervalChange();
+    void updateEvent_seriesWithCompletedOccurrence_recurrenceEndDate();
+    void updateEvent_seriesToOneTime_blockedOnlyWhenOtherDatesHaveHistory();
+    void updateEvent_preExistingOrphanHistoryDoesNotBlockEdits();
+    void updateEvent_rejectedEditChangesNothing();
+    void executionConflictsForEdit_reportsConflictingDates();
+
+    // --- Этап D2: NOW ---
+    void nowSnapshot_backToBackTasks_switchAtBoundary();
+    void nowSnapshot_rescheduledIntoToday_becomesCurrentThenNext();
+
+    // --- Этап D4: удаление ---
+    void removeEvent_oneTimeDeletesEventAndExecutions();
+    void removeEvent_seriesClearsExceptionsAndExecutionsKeepsMovedCopy();
+    void removeEvent_missingIdReturnsFalse();
+    void removeEvent_failureRollsBackEverything();
+
 private:
+    // Хелперы Этапа D. Сырой SQL нужен, чтобы создавать состояния, которых
+    // нет в UI (Postponed/Cancelled), и чтобы смоделировать сбой удаления.
+    void insertRawExecution(int eventId, const QDate &date, const QString &status);
+    int countRows(const QString &table, int eventId) const;
+
     EventManager *m_manager = nullptr;
+    QString m_connectionName;
 };
 
 void TestEventManager::init()
@@ -121,6 +162,7 @@ void TestEventManager::init()
     // переиспользовать старое соединение, либо ругаться в консоль.
     static int counter = 0;
     const QString connectionName = QStringLiteral("test_event_manager_%1").arg(++counter);
+    m_connectionName = connectionName;
     m_manager = new EventManager(QStringLiteral(":memory:"), connectionName);
 }
 
@@ -1472,6 +1514,607 @@ void TestEventManager::rescheduleOccurrence_persistsAcrossManagerRecreation()
         QCOMPARE(nextWeek.size(), 1);
         QCOMPARE(nextWeek[0].id, templateId);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Этап D
+// ---------------------------------------------------------------------------
+
+namespace {
+
+Event makeOneTimeEvent(const QString &title, const QDate &date, const QTime &start, const QTime &end)
+{
+    Event event;
+    event.title = title;
+    event.date = date;
+    event.startTime = start;
+    event.endTime = end;
+    return event;
+}
+
+Event makeSeries(const QString &title, const QDate &anchor, RecurrenceType type, int interval = 1)
+{
+    Event event = makeOneTimeEvent(title, anchor, QTime(9, 0), QTime(10, 0));
+    event.recurrenceType = type;
+    event.recurrenceInterval = interval;
+    return event;
+}
+
+} // namespace
+
+void TestEventManager::insertRawExecution(int eventId, const QDate &date, const QString &status)
+{
+    QSqlQuery query(QSqlDatabase::database(m_connectionName));
+    query.prepare(
+        "INSERT OR REPLACE INTO event_executions (event_id, occurrence_date, status) "
+        "VALUES (:event_id, :occurrence_date, :status)");
+    query.bindValue(":event_id", eventId);
+    query.bindValue(":occurrence_date", date.toString(Qt::ISODate));
+    query.bindValue(":status", status);
+    QVERIFY(query.exec());
+}
+
+int TestEventManager::countRows(const QString &table, int eventId) const
+{
+    QSqlQuery query(QSqlDatabase::database(m_connectionName));
+    query.prepare(QStringLiteral("SELECT COUNT(*) FROM %1 WHERE event_id = :id").arg(table));
+    query.bindValue(":id", eventId);
+    if (!query.exec() || !query.next())
+        return -1;
+    return query.value(0).toInt();
+}
+
+// --- D1: переходы ---
+
+void TestEventManager::startOccurrence_fromNoRecordAndMissed_succeeds()
+{
+    const QDate date(2026, 9, 21);
+    const int id = m_manager->addEvent(makeOneTimeEvent("Task", date, QTime(9, 0), QTime(10, 0)));
+    QVERIFY(id > 0);
+
+    // 14:00 - окно давно закончилось (grace 60 мин), эффективный статус Missed;
+    // записи в БД нет. Start из Missed разрешён.
+    const QDateTime startedAt(date, QTime(14, 0));
+    QCOMPARE(m_manager->effectiveStatus(id, date, QTime(9, 0), QTime(10, 0), startedAt), ExecutionStatus::Missed);
+    QVERIFY(m_manager->startOccurrence(id, date, startedAt));
+
+    EventExecution execution;
+    QVERIFY(m_manager->executionForOccurrence(id, date, execution));
+    QCOMPARE(execution.status, ExecutionStatus::Running);
+    QCOMPARE(execution.actualStart, startedAt);
+}
+
+void TestEventManager::startOccurrence_fromRunning_rejectedAndKeepsActualStart()
+{
+    const QDate date(2026, 9, 21);
+    const int id = m_manager->addEvent(makeOneTimeEvent("Task", date, QTime(9, 0), QTime(10, 0)));
+    const QDateTime firstStart(date, QTime(9, 5));
+    QVERIFY(m_manager->startOccurrence(id, date, firstStart));
+
+    QVERIFY(!m_manager->startOccurrence(id, date, QDateTime(date, QTime(9, 40))));
+
+    EventExecution execution;
+    QVERIFY(m_manager->executionForOccurrence(id, date, execution));
+    QCOMPARE(execution.status, ExecutionStatus::Running);
+    QCOMPARE(execution.actualStart, firstStart); // не сброшен
+}
+
+void TestEventManager::startOccurrence_fromCompleted_rejectedAndKeepsRecord()
+{
+    const QDate date(2026, 9, 21);
+    const int id = m_manager->addEvent(makeOneTimeEvent("Task", date, QTime(9, 0), QTime(10, 0)));
+    const QDateTime started(date, QTime(9, 5));
+    const QDateTime completed(date, QTime(9, 50));
+    QVERIFY(m_manager->startOccurrence(id, date, started));
+    QVERIFY(m_manager->completeOccurrence(id, date, completed));
+
+    QVERIFY(!m_manager->startOccurrence(id, date, QDateTime(date, QTime(11, 0))));
+
+    EventExecution execution;
+    QVERIFY(m_manager->executionForOccurrence(id, date, execution));
+    QCOMPARE(execution.status, ExecutionStatus::Completed); // не вернулась в Running
+    QCOMPARE(execution.actualStart, started);
+    QCOMPARE(execution.actualEnd, completed);
+}
+
+void TestEventManager::startOccurrence_fromPostponedAndCancelled_rejected()
+{
+    const QDate date(2026, 9, 21);
+    const int postponedId = m_manager->addEvent(makeOneTimeEvent("P", date, QTime(9, 0), QTime(10, 0)));
+    const int cancelledId = m_manager->addEvent(makeOneTimeEvent("C", date, QTime(11, 0), QTime(12, 0)));
+    insertRawExecution(postponedId, date, "postponed");
+    insertRawExecution(cancelledId, date, "cancelled");
+
+    const QDateTime now(date, QTime(8, 0));
+    QVERIFY(!m_manager->startOccurrence(postponedId, date, now));
+    QVERIFY(!m_manager->startOccurrence(cancelledId, date, now));
+
+    EventExecution execution;
+    QVERIFY(m_manager->executionForOccurrence(postponedId, date, execution));
+    QCOMPARE(execution.status, ExecutionStatus::Postponed);
+    QVERIFY(m_manager->executionForOccurrence(cancelledId, date, execution));
+    QCOMPARE(execution.status, ExecutionStatus::Cancelled);
+}
+
+void TestEventManager::startOccurrence_rejectionAffectsOnlyThatOccurrenceOfSeries()
+{
+    const QDate monday(2026, 9, 21);
+    const QDate nextMonday(2026, 9, 28);
+    const int id = m_manager->addEvent(makeSeries("Weekly", monday, RecurrenceType::Weekly));
+    QVERIFY(m_manager->completeOccurrence(id, monday, QDateTime(monday, QTime(10, 0))));
+
+    QVERIFY(!m_manager->startOccurrence(id, monday, QDateTime(monday, QTime(11, 0))));
+    QVERIFY(m_manager->startOccurrence(id, nextMonday, QDateTime(nextMonday, QTime(9, 0))));
+}
+
+void TestEventManager::completeOccurrence_fromNoRecordAndRunning_succeeds()
+{
+    const QDate date(2026, 9, 21);
+
+    // Без записи ("Manual completion"): actualStart/actualEnd не заполняются.
+    const int manualId = m_manager->addEvent(makeOneTimeEvent("Manual", date, QTime(9, 0), QTime(10, 0)));
+    QVERIFY(m_manager->completeOccurrence(manualId, date, QDateTime(date, QTime(10, 0))));
+    EventExecution execution;
+    QVERIFY(m_manager->executionForOccurrence(manualId, date, execution));
+    QCOMPARE(execution.status, ExecutionStatus::Completed);
+    QVERIFY(!execution.actualStart.isValid());
+
+    // Из Running ("Track actual time"): фиксируется actualEnd.
+    const int trackedId = m_manager->addEvent(makeOneTimeEvent("Tracked", date, QTime(11, 0), QTime(12, 0)));
+    const QDateTime end(date, QTime(11, 45));
+    QVERIFY(m_manager->startOccurrence(trackedId, date, QDateTime(date, QTime(11, 5))));
+    QVERIFY(m_manager->completeOccurrence(trackedId, date, end));
+    QVERIFY(m_manager->executionForOccurrence(trackedId, date, execution));
+    QCOMPARE(execution.status, ExecutionStatus::Completed);
+    QCOMPARE(execution.actualEnd, end);
+}
+
+void TestEventManager::completeOccurrence_fromCompleted_rejectedAndKeepsActualEnd()
+{
+    const QDate date(2026, 9, 21);
+    const int id = m_manager->addEvent(makeOneTimeEvent("Task", date, QTime(9, 0), QTime(10, 0)));
+    const QDateTime end(date, QTime(9, 50));
+    QVERIFY(m_manager->startOccurrence(id, date, QDateTime(date, QTime(9, 5))));
+    QVERIFY(m_manager->completeOccurrence(id, date, end));
+
+    QVERIFY(!m_manager->completeOccurrence(id, date, QDateTime(date, QTime(15, 0))));
+
+    EventExecution execution;
+    QVERIFY(m_manager->executionForOccurrence(id, date, execution));
+    QCOMPARE(execution.status, ExecutionStatus::Completed);
+    QCOMPARE(execution.actualEnd, end); // не сдвинут
+}
+
+void TestEventManager::completeOccurrence_fromPostponedAndCancelled_rejected()
+{
+    const QDate date(2026, 9, 21);
+    const int postponedId = m_manager->addEvent(makeOneTimeEvent("P", date, QTime(9, 0), QTime(10, 0)));
+    const int cancelledId = m_manager->addEvent(makeOneTimeEvent("C", date, QTime(11, 0), QTime(12, 0)));
+    insertRawExecution(postponedId, date, "postponed");
+    insertRawExecution(cancelledId, date, "cancelled");
+
+    const QDateTime now(date, QTime(13, 0));
+    QVERIFY(!m_manager->completeOccurrence(postponedId, date, now));
+    QVERIFY(!m_manager->completeOccurrence(cancelledId, date, now));
+
+    EventExecution execution;
+    QVERIFY(m_manager->executionForOccurrence(postponedId, date, execution));
+    QCOMPARE(execution.status, ExecutionStatus::Postponed);
+    QVERIFY(m_manager->executionForOccurrence(cancelledId, date, execution));
+    QCOMPARE(execution.status, ExecutionStatus::Cancelled);
+}
+
+// --- D1: редактирование ---
+
+void TestEventManager::updateEvent_oneTimeWithHistory_rejectsDateAndStartChange()
+{
+    const QDate date(2026, 9, 21);
+
+    for (int pass = 0; pass < 2; ++pass) {
+        const bool completed = (pass == 0);
+        const int id = m_manager->addEvent(
+            makeOneTimeEvent(completed ? "Done" : "Doing", date, QTime(9, 0), QTime(10, 0)));
+        QVERIFY(id > 0);
+        QVERIFY(m_manager->startOccurrence(id, date, QDateTime(date, QTime(9, 0))));
+        if (completed)
+            QVERIFY(m_manager->completeOccurrence(id, date, QDateTime(date, QTime(9, 45))));
+
+        Event stored;
+        QVERIFY(m_manager->eventById(id, stored));
+
+        Event moved = stored;
+        moved.date = date.addDays(1);
+        QVERIFY(!m_manager->updateEvent(moved));
+
+        Event retimed = stored;
+        retimed.startTime = QTime(9, 30);
+        QVERIFY(!m_manager->updateEvent(retimed));
+
+        Event after;
+        QVERIFY(m_manager->eventById(id, after));
+        QCOMPARE(after.date, date);
+        QCOMPARE(after.startTime, QTime(9, 0));
+
+        EventExecution execution;
+        QVERIFY(m_manager->executionForOccurrence(id, date, execution));
+        QCOMPARE(execution.status, completed ? ExecutionStatus::Completed : ExecutionStatus::Running);
+    }
+}
+
+void TestEventManager::updateEvent_oneTimeCompleted_allowsEndTitleAndDescriptionChange()
+{
+    const QDate date(2026, 9, 21);
+    const int id = m_manager->addEvent(makeOneTimeEvent("Done", date, QTime(9, 0), QTime(10, 0)));
+    QVERIFY(m_manager->completeOccurrence(id, date, QDateTime(date, QTime(10, 0))));
+
+    Event edited;
+    QVERIFY(m_manager->eventById(id, edited));
+    edited.title = QStringLiteral("Renamed");
+    edited.description = QStringLiteral("Notes");
+    edited.endTime = QTime(10, 30); // конец можно менять (начало и дата - нет)
+    QVERIFY(m_manager->updateEvent(edited));
+
+    Event after;
+    QVERIFY(m_manager->eventById(id, after));
+    QCOMPARE(after.title, QStringLiteral("Renamed"));
+    QCOMPARE(after.description, QStringLiteral("Notes"));
+    QCOMPARE(after.endTime, QTime(10, 30));
+
+    EventExecution execution;
+    QVERIFY(m_manager->executionForOccurrence(id, date, execution));
+    QCOMPARE(execution.status, ExecutionStatus::Completed); // история на месте
+}
+
+void TestEventManager::updateEvent_oneTimePlanned_allowsAnyChange()
+{
+    const QDate date(2026, 9, 21);
+    const int id = m_manager->addEvent(makeOneTimeEvent("Plan", date, QTime(9, 0), QTime(10, 0)));
+
+    Event edited;
+    QVERIFY(m_manager->eventById(id, edited));
+    edited.date = date.addDays(3);
+    edited.startTime = QTime(14, 0);
+    edited.endTime = QTime(15, 0);
+    QVERIFY(m_manager->updateEvent(edited));
+
+    Event after;
+    QVERIFY(m_manager->eventById(id, after));
+    QCOMPARE(after.date, date.addDays(3));
+    QCOMPARE(after.startTime, QTime(14, 0));
+}
+
+void TestEventManager::updateEvent_seriesWithCompletedOccurrence_allowsTitleAndTimeChange()
+{
+    const QDate monday(2026, 9, 21);
+    const int id = m_manager->addEvent(makeSeries("Weekly", monday, RecurrenceType::Weekly));
+    QVERIFY(m_manager->completeOccurrence(id, monday, QDateTime(monday, QTime(10, 0))));
+
+    // Один выполненный день серию не замораживает.
+    Event edited;
+    QVERIFY(m_manager->eventById(id, edited));
+    edited.title = QStringLiteral("Weekly renamed");
+    edited.startTime = QTime(18, 0);
+    edited.endTime = QTime(19, 30);
+    QVERIFY(m_manager->updateEvent(edited));
+
+    Event after;
+    QVERIFY(m_manager->eventById(id, after));
+    QCOMPARE(after.title, QStringLiteral("Weekly renamed"));
+    QCOMPARE(after.startTime, QTime(18, 0));
+
+    EventExecution execution;
+    QVERIFY(m_manager->executionForOccurrence(id, monday, execution));
+    QCOMPARE(execution.status, ExecutionStatus::Completed);
+}
+
+void TestEventManager::updateEvent_seriesWithCompletedOccurrence_anchorShift()
+{
+    const QDate monday(2026, 9, 21);
+    const int id = m_manager->addEvent(makeSeries("Weekly", monday, RecurrenceType::Weekly));
+    QVERIFY(m_manager->completeOccurrence(id, monday, QDateTime(monday, QTime(10, 0))));
+
+    Event stored;
+    QVERIFY(m_manager->eventById(id, stored));
+
+    // Тот же день недели, раньше - 21.09 остаётся вхождением.
+    Event earlier = stored;
+    earlier.date = monday.addDays(-7);
+    QVERIFY(m_manager->updateEvent(earlier));
+
+    // Другой день недели - 21.09 перестало бы быть вхождением.
+    Event otherWeekday = earlier;
+    otherWeekday.date = monday.addDays(1); // вторник
+    QVERIFY(!m_manager->updateEvent(otherWeekday));
+
+    // Якорь позже выполненной даты - она оказалась бы до начала серии.
+    Event later = earlier;
+    later.date = monday.addDays(7);
+    QVERIFY(!m_manager->updateEvent(later));
+
+    Event after;
+    QVERIFY(m_manager->eventById(id, after));
+    QCOMPARE(after.date, monday.addDays(-7)); // остался результат первой, допустимой правки
+}
+
+void TestEventManager::updateEvent_seriesWithCompletedOccurrence_intervalChange()
+{
+    const QDate anchor(2026, 9, 21);
+
+    // История на 22.09: Daily -> Custom(2) оставляет 21, 23, 25... - 22.09 выпало бы.
+    const int droppedId = m_manager->addEvent(makeSeries("Daily A", anchor, RecurrenceType::Daily));
+    QVERIFY(m_manager->completeOccurrence(droppedId, anchor.addDays(1), QDateTime(anchor.addDays(1), QTime(10, 0))));
+    Event dropped;
+    QVERIFY(m_manager->eventById(droppedId, dropped));
+    dropped.recurrenceType = RecurrenceType::Custom;
+    dropped.recurrenceInterval = 2;
+    QVERIFY(!m_manager->updateEvent(dropped));
+
+    // История на 23.09: та же правка оставляет её вхождением - разрешено.
+    const int keptId = m_manager->addEvent(makeSeries("Daily B", anchor, RecurrenceType::Daily));
+    QVERIFY(m_manager->completeOccurrence(keptId, anchor.addDays(2), QDateTime(anchor.addDays(2), QTime(10, 0))));
+    Event kept;
+    QVERIFY(m_manager->eventById(keptId, kept));
+    kept.recurrenceType = RecurrenceType::Custom;
+    kept.recurrenceInterval = 2;
+    QVERIFY(m_manager->updateEvent(kept));
+}
+
+void TestEventManager::updateEvent_seriesWithCompletedOccurrence_recurrenceEndDate()
+{
+    const QDate monday(2026, 9, 21);
+    const int id = m_manager->addEvent(makeSeries("Weekly", monday, RecurrenceType::Weekly));
+    QVERIFY(m_manager->completeOccurrence(id, monday, QDateTime(monday, QTime(10, 0))));
+
+    Event stored;
+    QVERIFY(m_manager->eventById(id, stored));
+
+    Event tooEarly = stored;
+    tooEarly.recurrenceEndDate = QDate(2026, 9, 20); // до выполненной даты
+    QVERIFY(!m_manager->updateEvent(tooEarly));
+
+    Event ok = stored;
+    ok.recurrenceEndDate = QDate(2026, 9, 28); // выполненная дата остаётся внутри
+    QVERIFY(m_manager->updateEvent(ok));
+}
+
+void TestEventManager::updateEvent_seriesToOneTime_blockedOnlyWhenOtherDatesHaveHistory()
+{
+    const QDate monday(2026, 9, 21);
+    const QDate nextMonday(2026, 9, 28);
+
+    // История на двух датах: превращение в одноразовое на 21.09 осиротило бы 28.09.
+    const int twoId = m_manager->addEvent(makeSeries("Two", monday, RecurrenceType::Weekly));
+    QVERIFY(m_manager->completeOccurrence(twoId, monday, QDateTime(monday, QTime(10, 0))));
+    QVERIFY(m_manager->completeOccurrence(twoId, nextMonday, QDateTime(nextMonday, QTime(10, 0))));
+    Event two;
+    QVERIFY(m_manager->eventById(twoId, two));
+    two.recurrenceType = RecurrenceType::None;
+    QVERIFY(!m_manager->updateEvent(two));
+
+    // История только на якорной дате - превращение допустимо.
+    const int oneId = m_manager->addEvent(makeSeries("One", monday, RecurrenceType::Weekly));
+    QVERIFY(m_manager->completeOccurrence(oneId, monday, QDateTime(monday, QTime(10, 0))));
+    Event one;
+    QVERIFY(m_manager->eventById(oneId, one));
+    one.recurrenceType = RecurrenceType::None;
+    QVERIFY(m_manager->updateEvent(one));
+
+    Event after;
+    QVERIFY(m_manager->eventById(oneId, after));
+    QCOMPARE(after.recurrenceType, RecurrenceType::None);
+}
+
+void TestEventManager::updateEvent_preExistingOrphanHistoryDoesNotBlockEdits()
+{
+    const QDate monday(2026, 9, 21);
+    const int id = m_manager->addEvent(makeSeries("Weekly", monday, RecurrenceType::Weekly));
+
+    // Старая "сирота": completed на вторнике, который и так не вхождение серии.
+    insertRawExecution(id, monday.addDays(1), "completed");
+
+    Event edited;
+    QVERIFY(m_manager->eventById(id, edited));
+    edited.title = QStringLiteral("Still editable");
+    QVERIFY(m_manager->updateEvent(edited));
+
+    edited.date = monday.addDays(-7); // и якорь тоже можно двигать
+    QVERIFY(m_manager->updateEvent(edited));
+}
+
+void TestEventManager::updateEvent_rejectedEditChangesNothing()
+{
+    const QDate monday(2026, 9, 21);
+    const int id = m_manager->addEvent(makeSeries("Original", monday, RecurrenceType::Weekly));
+    QVERIFY(m_manager->completeOccurrence(id, monday, QDateTime(monday, QTime(10, 0))));
+
+    Event edited;
+    QVERIFY(m_manager->eventById(id, edited));
+    edited.title = QStringLiteral("Should not be saved"); // безобидное поле в той же правке
+    edited.date = monday.addDays(1);                      // ломающее поле
+    QVERIFY(!m_manager->updateEvent(edited));
+
+    Event after;
+    QVERIFY(m_manager->eventById(id, after));
+    QCOMPARE(after.title, QStringLiteral("Original")); // правка отклонена целиком
+    QCOMPARE(after.date, monday);
+
+    EventExecution execution;
+    QVERIFY(m_manager->executionForOccurrence(id, monday, execution));
+    QCOMPARE(execution.status, ExecutionStatus::Completed);
+}
+
+void TestEventManager::executionConflictsForEdit_reportsConflictingDates()
+{
+    const QDate date(2026, 9, 21);
+    const int id = m_manager->addEvent(makeOneTimeEvent("Done", date, QTime(9, 0), QTime(10, 0)));
+    QVERIFY(m_manager->completeOccurrence(id, date, QDateTime(date, QTime(10, 0))));
+
+    Event stored;
+    QVERIFY(m_manager->eventById(id, stored));
+
+    QVERIFY(m_manager->executionConflictsForEdit(stored).isEmpty()); // без изменений
+
+    Event moved = stored;
+    moved.date = date.addDays(1);
+    const QVector<QDate> conflicts = m_manager->executionConflictsForEdit(moved);
+    QCOMPARE(conflicts.size(), 1);
+    QCOMPARE(conflicts[0], date);
+
+    Event endOnly = stored;
+    endOnly.endTime = QTime(11, 0);
+    QVERIFY(m_manager->executionConflictsForEdit(endOnly).isEmpty());
+
+    Event missing = stored;
+    missing.id = 999999; // несуществующее событие
+    QVERIFY(m_manager->executionConflictsForEdit(missing).isEmpty());
+
+    // Метод ничего не пишет - событие осталось прежним.
+    Event after;
+    QVERIFY(m_manager->eventById(id, after));
+    QCOMPARE(after.date, date);
+}
+
+// --- D2: NOW ---
+
+void TestEventManager::nowSnapshot_backToBackTasks_switchAtBoundary()
+{
+    const QDate date(2026, 9, 21);
+    const int firstId = m_manager->addEvent(makeOneTimeEvent("First", date, QTime(9, 0), QTime(10, 0)));
+    const int secondId = m_manager->addEvent(makeOneTimeEvent("Second", date, QTime(10, 0), QTime(11, 0)));
+    QVERIFY(firstId > 0 && secondId > 0);
+
+    // За секунду до стыка: текущая - первая, следующая - вторая.
+    NowSnapshot before = m_manager->nowSnapshot(date, QDateTime(date, QTime(9, 59, 59)));
+    QVERIFY(before.hasCurrent);
+    QCOMPARE(before.current.event.id, firstId);
+    QVERIFY(before.hasNext);
+    QCOMPARE(before.next.event.id, secondId);
+
+    // Ровно в момент стыка: текущая уже вторая; следующей нет.
+    NowSnapshot atBoundary = m_manager->nowSnapshot(date, QDateTime(date, QTime(10, 0, 0)));
+    QVERIFY(atBoundary.hasCurrent);
+    QCOMPARE(atBoundary.current.event.id, secondId);
+    QVERIFY(!atBoundary.hasNext);
+
+    // Сразу после стыка - то же.
+    NowSnapshot after = m_manager->nowSnapshot(date, QDateTime(date, QTime(10, 0, 1)));
+    QVERIFY(after.hasCurrent);
+    QCOMPARE(after.current.event.id, secondId);
+}
+
+void TestEventManager::nowSnapshot_rescheduledIntoToday_becomesCurrentThenNext()
+{
+    const QDate today(2026, 9, 24);
+
+    // 1) Одноразовое, перенесённое на сегодня с другой даты (тот же id).
+    const QDate oldDate(2026, 9, 20);
+    const int oneTimeId = m_manager->addEvent(makeOneTimeEvent("Moved one-time", oldDate, QTime(9, 0), QTime(10, 0)));
+    QVERIFY(m_manager->rescheduleOccurrence(
+        oneTimeId, oldDate, today, QTime(14, 0), QTime(15, 0), nullptr, QDateTime(today, QTime(8, 0))));
+
+    NowSnapshot atWindow = m_manager->nowSnapshot(today, QDateTime(today, QTime(14, 30)));
+    QVERIFY(atWindow.hasCurrent);
+    QCOMPARE(atWindow.current.event.id, oneTimeId);
+    QCOMPARE(atWindow.current.event.date, today);
+
+    NowSnapshot beforeWindow = m_manager->nowSnapshot(today, QDateTime(today, QTime(13, 0)));
+    QVERIFY(!beforeWindow.hasCurrent);
+    QVERIFY(beforeWindow.hasNext);
+    QCOMPARE(beforeWindow.next.event.id, oneTimeId);
+
+    // Со старой даты событие исчезло.
+    NowSnapshot oldDay = m_manager->nowSnapshot(oldDate, QDateTime(oldDate, QTime(9, 30)));
+    QVERIFY(!oldDay.hasCurrent);
+    QCOMPARE(oldDay.allForDate.size(), 0);
+
+    // 2) Вхождение серии, перенесённое на сегодня: появляется как новое
+    // одноразовое событие с другим id.
+    const QDate monday(2026, 9, 21);
+    const QDate nextMonday(2026, 9, 28);
+    const int seriesId = m_manager->addEvent(makeSeries("Series", monday, RecurrenceType::Weekly));
+    int movedId = -1;
+    QVERIFY(m_manager->rescheduleOccurrence(
+        seriesId, nextMonday, today, QTime(16, 0), QTime(17, 0), &movedId, QDateTime(today, QTime(8, 0))));
+    QVERIFY(movedId > 0 && movedId != seriesId);
+
+    NowSnapshot seriesMoved = m_manager->nowSnapshot(today, QDateTime(today, QTime(16, 30)));
+    QVERIFY(seriesMoved.hasCurrent);
+    QCOMPARE(seriesMoved.current.event.id, movedId);
+    QCOMPARE(seriesMoved.current.event.date, today);
+}
+
+// --- D4: удаление ---
+
+void TestEventManager::removeEvent_oneTimeDeletesEventAndExecutions()
+{
+    const QDate date(2026, 9, 21);
+    const int id = m_manager->addEvent(makeOneTimeEvent("Task", date, QTime(9, 0), QTime(10, 0)));
+    QVERIFY(m_manager->startOccurrence(id, date, QDateTime(date, QTime(9, 0))));
+    QVERIFY(m_manager->completeOccurrence(id, date, QDateTime(date, QTime(9, 50))));
+    QCOMPARE(countRows("event_executions", id), 1);
+
+    QVERIFY(m_manager->removeEvent(id));
+
+    Event gone;
+    QVERIFY(!m_manager->eventById(id, gone));
+    QCOMPARE(countRows("event_executions", id), 0);
+}
+
+void TestEventManager::removeEvent_seriesClearsExceptionsAndExecutionsKeepsMovedCopy()
+{
+    const QDate monday(2026, 9, 21);
+    const QDate nextMonday(2026, 9, 28);
+    const int seriesId = m_manager->addEvent(makeSeries("Weekly", monday, RecurrenceType::Weekly));
+    QVERIFY(m_manager->completeOccurrence(seriesId, monday, QDateTime(monday, QTime(10, 0))));
+
+    int movedId = -1;
+    QVERIFY(m_manager->rescheduleOccurrence(
+        seriesId, nextMonday, QDate(2026, 9, 29), QTime(12, 0), QTime(13, 0), &movedId,
+        QDateTime(monday, QTime(8, 0))));
+    QVERIFY(movedId > 0);
+
+    QCOMPARE(countRows("event_executions", seriesId), 1);
+    QCOMPARE(countRows("recurrence_exceptions", seriesId), 1);
+
+    QVERIFY(m_manager->removeEvent(seriesId));
+
+    Event gone;
+    QVERIFY(!m_manager->eventById(seriesId, gone));
+    QCOMPARE(countRows("event_executions", seriesId), 0);
+    QCOMPARE(countRows("recurrence_exceptions", seriesId), 0);
+
+    // Перенесённая копия - независимое одноразовое событие, удаление серии её не трогает.
+    Event moved;
+    QVERIFY(m_manager->eventById(movedId, moved));
+}
+
+void TestEventManager::removeEvent_missingIdReturnsFalse()
+{
+    QVERIFY(!m_manager->removeEvent(987654));
+}
+
+void TestEventManager::removeEvent_failureRollsBackEverything()
+{
+    const QDate date(2026, 9, 21);
+    const int id = m_manager->addEvent(makeOneTimeEvent("Task", date, QTime(9, 0), QTime(10, 0)));
+    QVERIFY(m_manager->completeOccurrence(id, date, QDateTime(date, QTime(10, 0))));
+    QCOMPARE(countRows("event_executions", id), 1);
+
+    // Минимальная имитация сбоя без новой инфраструктуры: удаляем таблицу
+    // исключений, и второй DELETE внутри removeEvent() падает. Первый DELETE
+    // (execution-записи) к этому моменту уже выполнен - при откате он должен
+    // быть отменён.
+    {
+        QSqlQuery drop(QSqlDatabase::database(m_connectionName));
+        QVERIFY(drop.exec(QStringLiteral("DROP TABLE recurrence_exceptions")));
+    }
+
+    QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Failed to clear recurrence exceptions before delete"));
+    QVERIFY(!m_manager->removeEvent(id));
+
+    Event stillThere;
+    QVERIFY(m_manager->eventById(id, stillThere));        // событие на месте
+    QCOMPARE(countRows("event_executions", id), 1);       // и execution-запись тоже - откат сработал
 }
 
 QTEST_MAIN(TestEventManager)

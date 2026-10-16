@@ -263,8 +263,65 @@ int EventManager::addEvent(const Event &event)
     return query.lastInsertId().toInt();
 }
 
+QVector<QDate> EventManager::executionConflictsForEdit(const Event &edited) const
+{
+    QVector<QDate> conflicts;
+
+    Event stored;
+    if (!eventById(edited.id, stored))
+        return conflicts; // события нет - рассогласовывать нечего
+
+    // Даты с "историей": сохранённый статус Running или Completed.
+    QSqlQuery query(QSqlDatabase::database(m_connectionName));
+    query.prepare(
+        "SELECT occurrence_date FROM event_executions "
+        "WHERE event_id = :id AND status IN (:running, :completed) "
+        "ORDER BY occurrence_date"
+    );
+    query.bindValue(":id", edited.id);
+    query.bindValue(":running", executionStatusToString(ExecutionStatus::Running));
+    query.bindValue(":completed", executionStatusToString(ExecutionStatus::Completed));
+    if (!query.exec()) {
+        qWarning() << "Failed to read executions for edit check:" << query.lastError().text();
+        return conflicts;
+    }
+
+    while (query.next()) {
+        const QDate historyDate = QDate::fromString(query.value(0).toString(), Qt::ISODate);
+        if (!historyDate.isValid())
+            continue;
+
+        if (stored.recurrenceType == RecurrenceType::None) {
+            // Одноразовое: значима только запись на его собственной дате.
+            if (historyDate != stored.date)
+                continue; // старая сирота - не блокируем из-за неё
+            const bool movedOrRetimed = edited.date != stored.date || edited.startTime != stored.startTime;
+            if (movedOrRetimed || !eventOccursOnDate(edited, historyDate))
+                conflicts.append(historyDate);
+        } else {
+            // Серия: только даты, которые СЕЙЧАС вхождения и перестанут ими быть.
+            if (!eventOccursOnDate(stored, historyDate))
+                continue; // старая сирота
+            if (!eventOccursOnDate(edited, historyDate))
+                conflicts.append(historyDate);
+        }
+    }
+
+    return conflicts;
+}
+
 bool EventManager::updateEvent(const Event &event)
 {
+    // Stage D1: защита истории выполнения - на уровне модели, чтобы её
+    // нельзя было обойти ни диалогом редактирования, ни drag-and-drop,
+    // ни любым будущим вызывающим кодом.
+    const QVector<QDate> conflicts = executionConflictsForEdit(event);
+    if (!conflicts.isEmpty()) {
+        qWarning() << "updateEvent rejected: edit would orphan execution history on" << conflicts.first()
+                   << "(and" << (conflicts.size() - 1) << "more)";
+        return false;
+    }
+
     QSqlQuery query(QSqlDatabase::database(m_connectionName));
     query.prepare(
         "UPDATE events SET title = :title, date = :date, start_time = :start_time, "
@@ -298,33 +355,60 @@ bool EventManager::updateEvent(const Event &event)
 
 bool EventManager::removeEvent(int id)
 {
-    QSqlQuery query(QSqlDatabase::database(m_connectionName));
+    // Stage D4: три удаления - одной транзакцией. Раньше при сбое одного из
+    // шагов остальные всё равно выполнялись (в лог шло только предупреждение),
+    // и можно было получить, например, удалённое событие с живыми
+    // execution-записями. Теперь при любой ошибке - откат и false.
+    QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+    if (!db.transaction()) {
+        qWarning() << "Failed to start transaction for removeEvent:" << db.lastError().text();
+        return false;
+    }
+
+    QSqlQuery query(db);
 
     // Сначала убираем execution-записи этого события (MVP3.0) - иначе
     // они останутся сиротами в event_executions после удаления события
     // (тот же принцип, что и очистка category_id в removeCategory()).
     query.prepare("DELETE FROM event_executions WHERE event_id = :id");
     query.bindValue(":id", id);
-    if (!query.exec())
+    if (!query.exec()) {
         qWarning() << "Failed to clear executions before delete:" << query.lastError().text();
+        db.rollback();
+        return false;
+    }
 
     // Если удаляемое событие было recurring-шаблоном - его исключения
     // (Reschedule, MVP3) теряют смысл без самого шаблона, иначе остались
     // бы сиротами в recurrence_exceptions (тот же принцип, что и выше).
     query.prepare("DELETE FROM recurrence_exceptions WHERE event_id = :id");
     query.bindValue(":id", id);
-    if (!query.exec())
-        qWarning() << "Failed to clear recurrence exceptions before delete:" << query.lastError().text();
-
-    query.prepare("DELETE FROM events WHERE id = :id");
-    query.bindValue(":id", id);
-
     if (!query.exec()) {
-        qWarning() << "Failed to delete event:" << query.lastError().text();
+        qWarning() << "Failed to clear recurrence exceptions before delete:" << query.lastError().text();
+        db.rollback();
         return false;
     }
 
-    return query.numRowsAffected() > 0;
+    query.prepare("DELETE FROM events WHERE id = :id");
+    query.bindValue(":id", id);
+    if (!query.exec()) {
+        qWarning() << "Failed to delete event:" << query.lastError().text();
+        db.rollback();
+        return false;
+    }
+
+    // numRowsAffected() читаем ДО commit(). Если события с таким id не было,
+    // поведение прежнее: false (а возможные осиротевшие дочерние строки
+    // при этом всё равно очищены - как и раньше).
+    const bool removed = query.numRowsAffected() > 0;
+
+    if (!db.commit()) {
+        qWarning() << "Failed to commit removeEvent:" << db.lastError().text();
+        db.rollback();
+        return false;
+    }
+
+    return removed;
 }
 
 bool EventManager::eventById(int id, Event &outEvent) const
@@ -644,6 +728,18 @@ bool EventManager::upsertExecution(const EventExecution &execution)
 
 bool EventManager::startOccurrence(int eventId, const QDate &occurrenceDate, const QDateTime &startedAt)
 {
+    // Stage D1: правило перехода живёт здесь, а не только в состоянии кнопок
+    // UI. Проверяем по СОХРАНЁННОМУ статусу: вычисляемые Planned/Missed без
+    // записи в БД разрешены одинаково, так что "сейчас" для проверки не нужно.
+    EventExecution existing;
+    if (executionForOccurrence(eventId, occurrenceDate, existing)) {
+        if (existing.status != ExecutionStatus::Planned && existing.status != ExecutionStatus::Missed) {
+            qWarning() << "startOccurrence rejected: occurrence is already"
+                       << executionStatusToString(existing.status);
+            return false; // запись (actualStart/actualEnd) не трогаем
+        }
+    }
+
     EventExecution execution;
     execution.eventId = eventId;
     execution.occurrenceDate = occurrenceDate;
@@ -657,6 +753,18 @@ bool EventManager::completeOccurrence(int eventId, const QDate &occurrenceDate, 
 {
     EventExecution existing;
     const bool hasExisting = executionForOccurrence(eventId, occurrenceDate, existing);
+
+    // Stage D1: Complete допустим только из Planned/Running/Missed (или без
+    // записи). Повторный Complete не должен сдвигать actualEnd, а из
+    // Postponed/Cancelled завершать нельзя.
+    if (hasExisting
+        && existing.status != ExecutionStatus::Planned
+        && existing.status != ExecutionStatus::Running
+        && existing.status != ExecutionStatus::Missed) {
+        qWarning() << "completeOccurrence rejected: occurrence is already"
+                   << executionStatusToString(existing.status);
+        return false; // запись не трогаем
+    }
 
     EventExecution execution;
     execution.eventId = eventId;
